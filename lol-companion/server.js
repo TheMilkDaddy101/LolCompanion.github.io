@@ -227,7 +227,7 @@ function serveStatic(req, res, url) {
     return;
   }
   const full = path.join(PUBLIC_DIR, filePath);
-  if (!full.startsWith(PUBLIC_DIR)) {
+  if (!full.startsWith(PUBLIC_DIR + path.sep)) {
     res.writeHead(403).end();
     return;
   }
@@ -241,7 +241,22 @@ function serveStatic(req, res, url) {
   });
 }
 
+// Only answer requests addressed to localhost. The server already binds to
+// 127.0.0.1, but without this a malicious website could use DNS rebinding
+// (pointing its own domain at 127.0.0.1) to read responses from this API
+// while you browse. Riot IDs and lobby data are low-stakes, but there's no
+// reason to leave the door open.
+const ALLOWED_HOSTS = new Set([
+  `localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:${PORT}`, 'localhost', '127.0.0.1'
+]);
+
 const server = http.createServer(async (req, res) => {
+  if (!ALLOWED_HOSTS.has(req.headers.host || '')) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Forbidden: bad Host header');
+    return;
+  }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   const url = new URL(req.url, `http://${req.headers.host}`);
   const handler = routes[`${req.method} ${url.pathname}`];
   if (handler) {
