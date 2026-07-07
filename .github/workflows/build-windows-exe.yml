@@ -1,0 +1,58 @@
+name: Build LoL Companion Windows exe
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Also publish a GitHub Release with the exe"
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build single-file exe
+        run: node lol-companion/build/build.mjs
+
+      - name: Smoke test the exe
+        shell: pwsh
+        run: |
+          $env:LOL_NO_OPEN = "1"
+          $proc = Start-Process -FilePath "lol-companion/dist/LoLCompanion.exe" -PassThru -WorkingDirectory "lol-companion/dist"
+          Start-Sleep -Seconds 4
+          $health = Invoke-RestMethod -Uri "http://localhost:3577/api/health"
+          $health | ConvertTo-Json
+          $page = Invoke-WebRequest -Uri "http://localhost:3577/" -UseBasicParsing
+          if ($page.StatusCode -ne 200 -or $page.Content -notmatch "LoL Companion") { throw "UI did not serve" }
+          Stop-Process -Id $proc.Id -Force
+          Write-Host "Smoke test passed."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LoLCompanion-win-x64
+          path: lol-companion/dist/LoLCompanion.exe
+
+      - name: Publish release
+        if: ${{ inputs.release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: companion-build-${{ github.run_number }}
+          name: LoL Companion (Windows) — build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          files: lol-companion/dist/LoLCompanion.exe
+          body: |
+            **LoLCompanion.exe** — single-file Windows build. No install, no Node.js needed.
+
+            1. Download `LoLCompanion.exe` below and put it in its own folder (it creates `config.json` and a match cache next to itself).
+            2. Double-click it — your browser opens at http://localhost:3577.
+            3. Windows SmartScreen will warn because the exe is unsigned: click **More info → Run anyway**.
+            4. In Settings, paste a free Riot API key from https://developer.riotgames.com and set your region + Riot ID.

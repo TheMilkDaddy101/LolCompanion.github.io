@@ -2,10 +2,9 @@
 // (gitignored — your Riot API key never leaves your machine).
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { appDir } from './paths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = path.join(__dirname, '..', 'config.json');
+const CONFIG_PATH = path.join(appDir(), 'config.json');
 
 const DEFAULTS = {
   riotApiKey: '',

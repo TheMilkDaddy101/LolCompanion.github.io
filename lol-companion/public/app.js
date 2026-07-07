@@ -111,6 +111,14 @@ function champImg(idOrName, cls) {
   return img;
 }
 
+// Champ portrait, or a "?" placeholder pre-pick in lobby/champ select.
+function portraitEl(idOrName) {
+  if (idOrName == null || !DD.champIcon(idOrName)) {
+    return el('div', 'champ-portrait champ-unknown', '?');
+  }
+  return champImg(idOrName, 'champ-portrait');
+}
+
 /* ------------------------------------------------------------ navigation */
 document.querySelectorAll('.nav-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -154,10 +162,14 @@ function fillPlatformSelects(platforms) {
 /* -------------------------------------------------------------- live view */
 function playerCardSkeleton(p) {
   const card = el('div', 'player-card');
-  card.appendChild(champImg(p.championId ?? p.championName, 'champ-portrait'));
+  const champ = p.championId ?? p.championName ?? null;
+  card.appendChild(portraitEl(champ));
   const main = el('div', 'player-main');
   main.appendChild(el('div', 'player-name', p.riotId || 'Hidden name'));
-  main.appendChild(el('div', 'player-sub', DD.champName(p.championId ?? p.championName)));
+  const sub = champ != null && DD.champ(champ)
+    ? DD.champName(champ)
+    : (p.position ? p.position.charAt(0) + p.position.slice(1).toLowerCase() : 'No pick yet');
+  main.appendChild(el('div', 'player-sub', sub));
   main.appendChild(el('div', 'loading-inline', 'Scouting…'));
   card.appendChild(main);
   return card;
@@ -211,12 +223,26 @@ async function scoutGame() {
   try {
     const spectateId = $('#spectateInput').value.trim();
     const game = await api(`/api/scout${spectateId ? `?riotId=${encodeURIComponent(spectateId)}` : ''}`);
-    status.textContent = `${game.gameMode || 'Game'} found via ${game.source === 'local-client' ? 'your game client' : 'spectator API'} — scouting ${game.participants.length} players…`;
+    const sourceLabels = {
+      'local-client': 'your running game',
+      champselect: 'champ select',
+      lobby: 'your pregame lobby',
+      spectator: 'the spectator API'
+    };
+    status.textContent = `Found ${game.participants.length} player(s) via ${sourceLabels[game.source] || game.source} — scouting…`;
     board.classList.remove('hidden');
     const order = $('#teamOrder');
     const chaos = $('#teamChaos');
     order.innerHTML = '';
     chaos.innerHTML = '';
+
+    // Pregame sources may only know your own side — relabel and collapse.
+    const pregame = game.source === 'lobby' || game.source === 'champselect';
+    const hasEnemies = game.participants.some((p) => p.team === 'CHAOS');
+    order.closest('.team').querySelector('h2').textContent =
+      pregame ? (game.source === 'lobby' ? 'Your Lobby' : 'Your Team') : 'Blue Team';
+    chaos.closest('.team').querySelector('h2').textContent = pregame ? 'Enemy Team' : 'Red Team';
+    chaos.closest('.team').classList.toggle('hidden', !hasEnemies);
 
     const cards = [];
     for (const p of game.participants) {
@@ -487,14 +513,19 @@ $('#saveCfg').addEventListener('click', async () => {
   await loadSettings();
   setInterval(refreshStatus, 15_000);
 
-  // Kick off an initial live-game check so the Live tab isn't empty.
+  // Kick off an initial check — if you're already in a lobby, champ select,
+  // or game, scout it immediately.
   try {
-    const game = await api('/api/scout');
-    $('#liveStatus').textContent =
-      `Live game detected (${game.gameMode || 'unknown mode'}) — hit “Scout current game” to break it down.`;
+    await api('/api/scout');
+    if (appConfig.hasApiKey) {
+      scoutGame();
+    } else {
+      $('#liveStatus').textContent =
+        'Game or lobby detected — add your Riot API key in Settings to scout it.';
+    }
   } catch (err) {
     $('#liveStatus').textContent = appConfig.hasApiKey
-      ? 'No live game right now. Start a match (or enter a Riot ID to spectate) and hit Scout.'
-      : 'No live game right now. Add your Riot API key in Settings to unlock scouting and lookups.';
+      ? 'Nothing to scout yet. Join a lobby, queue up, or enter a Riot ID to spectate, then hit Scout.'
+      : 'Welcome! Add your free Riot API key in Settings to unlock scouting and lookups.';
   }
 })();

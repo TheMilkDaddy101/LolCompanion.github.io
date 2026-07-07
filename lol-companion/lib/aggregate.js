@@ -3,7 +3,7 @@
 //  - playerDossier: the Porofessor-style card for one player
 //  - recommendations: Mobalytics-style "what should I play" scoring
 import {
-  accountByRiotId, summonerByPuuid, leagueEntriesByPuuid,
+  accountByRiotId, accountByPuuid, summonerByPuuid, leagueEntriesByPuuid,
   topMasteries, matchIds, getMatch
 } from './riot.js';
 
@@ -100,10 +100,23 @@ function buildTags({ solo, recent, masteries, championId }) {
 // Full scouting card for one player. `championId` = the champ they're
 // currently playing (if we know it), used for one-trick detection.
 export async function playerDossier({ riotId, puuid, platform, championId = null }) {
-  if (!puuid) {
+  if (riotId) {
+    // Prefer name resolution — LCU-sourced puuids are not guaranteed to
+    // match the API-key-scoped puuids the Riot API expects.
     const account = await accountByRiotId(riotId, platform);
     puuid = account.puuid;
     riotId = `${account.gameName}#${account.tagLine}`;
+  } else if (puuid) {
+    try {
+      const account = await accountByPuuid(puuid, platform);
+      riotId = `${account.gameName}#${account.tagLine}`;
+    } catch {
+      riotId = 'Unknown player';
+    }
+  } else {
+    const err = new Error('riotId or puuid required');
+    err.status = 400;
+    throw err;
   }
   const [entries, masteries, recent] = await Promise.all([
     leagueEntriesByPuuid(puuid, platform).catch(() => []),

@@ -14,12 +14,26 @@ bogging your machine down.
 
 | Tab | What it does | Mimics |
 | --- | --- | --- |
-| 🔴 **Live Game** | Auto-detects your running game (works in champ select→loading→in game via the local game client, or via the spectator API for any Riot ID). Scouts all 10 players: rank + LP + winrate, last-5 form dots, main champions by mastery, and tags like *Hot streak*, *One-trick alert*, *Rusty*, *Rough patch*. | Porofessor |
+| 🔴 **Live Game** | Auto-detects what you're doing, in order: **in game** (local game client) → **champ select** → **pregame lobby** (your party members, before queue even pops) → spectator API for any Riot ID. Scouts every visible player: rank + LP + winrate, last-5 form dots, main champions by mastery, and tags like *Hot streak*, *One-trick alert*, *Rusty*, *Rough patch*. Opening the app while in a lobby scouts your teammates automatically. | Porofessor |
 | 🔎 **Summoner** | Look up any Riot ID: profile, Solo/Flex ranks, top mastery champions, and paged match history with KDA, CS/min, damage, and full item builds. | u.gg / op.gg |
 | 🏆 **For You** | Analyzes your last 30 games + champion mastery and scores every champion you play — smoothed winrate, KDA, play volume, and mastery depth — filterable by role. Tells you what you should actually be picking. | Mobalytics |
 | ⚙️ **Settings** | API key, region, your Riot ID, optional League install path. | — |
 
-## Quick start
+## Quick start (Windows exe — easiest)
+
+1. Grab **`LoLCompanion.exe`** from the repo's [Releases page](../../releases) — it's a single
+   file, no install, no Node.js needed.
+2. Put it in its own folder (it creates `config.json` and a match cache next to itself) and
+   double-click it. Your browser opens at http://localhost:3577.
+   - Windows SmartScreen will warn because the exe is unsigned — click **More info → Run anyway**.
+3. Get a free Riot API key at [developer.riotgames.com](https://developer.riotgames.com) and paste
+   it in **Settings**, along with your region and Riot ID.
+
+To rebuild the exe yourself: `node build/build.mjs` (Node 20+), or run the
+**Build LoL Companion Windows exe** workflow under the repo's Actions tab — it builds on a clean
+Windows runner, smoke-tests the binary, and publishes a Release.
+
+## Quick start (from source)
 
 1. **Install Node.js** (LTS) from [nodejs.org](https://nodejs.org) if you don't have it (`node -v` ≥ 18).
 2. **Get a free Riot API key**: sign in at [developer.riotgames.com](https://developer.riotgames.com)

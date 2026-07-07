@@ -3,15 +3,17 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { exec } from 'node:child_process';
 import { getConfig, saveConfig, publicConfig } from './lib/config.js';
 import { lcuGet, lcuAvailable } from './lib/lcu.js';
 import { liveGet, liveAvailable } from './lib/live.js';
 import { accountByRiotId, activeGameByPuuid, PLATFORMS } from './lib/riot.js';
 import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.js';
+import { appDir } from './lib/paths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const PUBLIC_DIR = path.join(appDir(), 'public');
+// Set by the single-executable build — maps filename -> file contents.
+const EMBEDDED_PUBLIC = globalThis.__EMBEDDED_PUBLIC__ || null;
 const PORT = Number(process.env.PORT || 3577);
 
 const MIME = {
@@ -42,9 +44,60 @@ function readBody(req) {
   });
 }
 
-// Figure out the current live game and its 10 participants, preferring the
-// local game client (works in any mode, zero API calls), falling back to
-// spectator-v5 for the configured Riot ID.
+// One LCU team member (lobby or champ select) → scoutable participant.
+// Prefer the Riot ID name when the client exposes it: names always resolve
+// through the public API, while LCU puuids aren't guaranteed to.
+function lcuParticipant(m, team) {
+  const riotId =
+    (m.gameName && m.tagLine && `${m.gameName}#${m.tagLine}`) ||
+    (m.summonerName && m.summonerName.includes('#') ? m.summonerName : null);
+  return {
+    riotId,
+    puuid: riotId ? null : m.puuid || null,
+    championId: m.championId || null,
+    position: (m.assignedPosition || m.firstPositionPreference || '').toUpperCase(),
+    team
+  };
+}
+
+// Pregame detection via the League client: champ select first (has champion
+// picks), then the plain lobby (party members before queue pops).
+async function detectPregame() {
+  try {
+    const session = await lcuGet('/lol-champ-select/v1/session');
+    const mine = (session.myTeam || []).filter((m) => m.puuid || m.gameName || m.summonerName);
+    const theirs = (session.theirTeam || []).filter((m) => m.puuid || m.gameName);
+    if (mine.length) {
+      return {
+        source: 'champselect',
+        participants: [
+          ...mine.map((m) => lcuParticipant(m, 'ORDER')),
+          ...theirs.map((m) => lcuParticipant(m, 'CHAOS'))
+        ]
+      };
+    }
+  } catch {
+    // not in champ select
+  }
+  try {
+    const lobby = await lcuGet('/lol-lobby/v2/lobby');
+    const members = (lobby.members || []).filter((m) => m.puuid || m.summonerName);
+    if (members.length) {
+      return {
+        source: 'lobby',
+        gameMode: lobby.gameConfig?.gameMode,
+        participants: members.map((m) => lcuParticipant(m, 'ORDER'))
+      };
+    }
+  } catch {
+    // not in a lobby
+  }
+  return null;
+}
+
+// Figure out the current game/lobby and its participants, preferring the
+// local game client (in game, zero API calls), then champ select, then the
+// pregame lobby, finally spectator-v5 for the configured Riot ID.
 async function detectLiveGame(riotIdOverride) {
   const cfg = getConfig();
   try {
@@ -63,11 +116,15 @@ async function detectLiveGame(riotIdOverride) {
       }))
     };
   } catch {
-    // Not in a running game locally — try spectating the configured player.
+    // Not in a running game locally — check pregame states.
+  }
+  if (!riotIdOverride) {
+    const pregame = await detectPregame();
+    if (pregame) return pregame;
   }
   const riotId = riotIdOverride || cfg.riotId;
   if (!riotId) {
-    const err = new Error('No live game found on this machine, and no Riot ID is configured to spectate.');
+    const err = new Error('No game, champ select, or lobby found on this machine, and no Riot ID is configured to spectate.');
     err.status = 404;
     throw err;
   }
@@ -158,6 +215,17 @@ const routes = {
 function serveStatic(req, res, url) {
   let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
   filePath = path.normalize(filePath).replace(/^(\.\.[/\\])+/, '');
+  if (EMBEDDED_PUBLIC) {
+    const name = filePath.replace(/^[/\\]+/, '');
+    const content = EMBEDDED_PUBLIC[name];
+    if (content !== undefined) {
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(name)] || 'application/octet-stream' });
+      res.end(content);
+    } else {
+      res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
+    }
+    return;
+  }
   const full = path.join(PUBLIC_DIR, filePath);
   if (!full.startsWith(PUBLIC_DIR)) {
     res.writeHead(403).end();
@@ -194,13 +262,24 @@ const server = http.createServer(async (req, res) => {
   serveStatic(req, res, url);
 });
 
+function openBrowser(url) {
+  if (process.env.LOL_NO_OPEN) return;
+  const cmd =
+    process.platform === 'win32' ? `start "" "${url}"`
+    : process.platform === 'darwin' ? `open "${url}"`
+    : `xdg-open "${url}"`;
+  exec(cmd, () => {}); // best effort — the URL is printed either way
+}
+
 server.listen(PORT, '127.0.0.1', () => {
+  const url = `http://localhost:${PORT}`;
   console.log('');
   console.log('  LoL Companion is running');
-  console.log(`  ->  http://localhost:${PORT}`);
+  console.log(`  ->  ${url}`);
   console.log('');
   console.log('  Tips:');
   console.log('   - Add your (free) Riot API key in Settings: https://developer.riotgames.com');
-  console.log('   - Keep this window open while you play. Ctrl+C to quit.');
+  console.log('   - Keep this window open while you play. Ctrl+C (or close it) to quit.');
   console.log('');
+  openBrowser(url);
 });

@@ -5,11 +5,10 @@
 //    scouting is nearly free
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { getConfig } from './config.js';
+import { appDir } from './paths.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MATCH_CACHE_DIR = path.join(__dirname, '..', 'cache', 'matches');
+const MATCH_CACHE_DIR = path.join(appDir(), 'cache', 'matches');
 
 // Platform (game server) → continental routing values.
 const ACCOUNT_REGION = {
@@ -136,6 +135,11 @@ export function accountByRiotId(riotId, platform) {
   }
   const host = `${ACCOUNT_REGION[platform] || 'americas'}.api.riotgames.com`;
   return cachedFetch(host, `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`, TTL.account);
+}
+
+export function accountByPuuid(puuid, platform) {
+  const host = `${ACCOUNT_REGION[platform] || 'americas'}.api.riotgames.com`;
+  return cachedFetch(host, `/riot/account/v1/accounts/by-puuid/${puuid}`, TTL.account);
 }
 
 export function summonerByPuuid(puuid, platform) {
