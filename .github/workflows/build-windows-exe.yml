@@ -7,6 +7,12 @@ on:
         description: "Also publish a GitHub Release with the exe"
         type: boolean
         default: true
+  push:
+    branches:
+      - claude/lol-data-aggregator-nyp28w
+    paths:
+      - "lol-companion/**"
+      - ".github/workflows/build-windows-exe.yml"
 
 jobs:
   build:
@@ -42,7 +48,7 @@ jobs:
           path: lol-companion/dist/LoLCompanion.exe
 
       - name: Publish release
-        if: ${{ inputs.release }}
+        if: ${{ github.event_name == 'push' || inputs.release }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: companion-build-${{ github.run_number }}
