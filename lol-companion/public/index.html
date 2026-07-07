@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoL Companion</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>⚔️</text></svg>">
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="brand">
+        <span class="brand-icon">⚔️</span>
+        <span class="brand-name">LoL Companion</span>
+      </div>
+      <button class="nav-btn active" data-view="live">🔴 Live Game</button>
+      <button class="nav-btn" data-view="summoner">🔎 Summoner</button>
+      <button class="nav-btn" data-view="recs">🏆 For You</button>
+      <button class="nav-btn" data-view="settings">⚙️ Settings</button>
+      <div class="status-box" id="statusBox">
+        <div class="status-row"><span class="dot" id="dotClient"></span> League client</div>
+        <div class="status-row"><span class="dot" id="dotGame"></span> In game</div>
+        <div class="status-row"><span class="dot" id="dotKey"></span> Riot API key</div>
+      </div>
+    </nav>
+
+    <main class="content">
+      <!-- ============================== LIVE ============================== -->
+      <section id="view-live" class="view">
+        <header class="view-header">
+          <h1>Live Game Scouting</h1>
+          <div class="header-actions">
+            <input id="spectateInput" placeholder="Spectate a Riot ID… (GameName#TAG)">
+            <button id="scoutBtn" class="primary">Scout current game</button>
+          </div>
+        </header>
+        <div id="liveStatus" class="notice">Checking for a live game…</div>
+        <div id="liveBoard" class="teams hidden">
+          <div class="team team-blue">
+            <h2>Blue Team</h2>
+            <div id="teamOrder" class="player-list"></div>
+          </div>
+          <div class="team team-red">
+            <h2>Red Team</h2>
+            <div id="teamChaos" class="player-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ SUMMONER ============================ -->
+      <section id="view-summoner" class="view hidden">
+        <header class="view-header">
+          <h1>Summoner Lookup</h1>
+          <div class="header-actions">
+            <input id="searchInput" placeholder="GameName#TAG">
+            <select id="searchPlatform"></select>
+            <button id="searchBtn" class="primary">Search</button>
+          </div>
+        </header>
+        <div id="summonerStatus" class="notice hidden"></div>
+        <div id="summonerResult" class="hidden">
+          <div class="profile-card" id="profileCard"></div>
+          <div class="two-col">
+            <div>
+              <h2>Match History</h2>
+              <div id="matchList" class="match-list"></div>
+              <button id="moreMatches" class="ghost">Load more</button>
+            </div>
+            <div>
+              <h2>Top Champions</h2>
+              <div id="masteryList" class="mastery-list"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================== RECS ============================== -->
+      <section id="view-recs" class="view hidden">
+        <header class="view-header">
+          <h1>Champion Recommendations</h1>
+          <div class="header-actions">
+            <select id="recsRole">
+              <option value="">All roles</option>
+              <option value="TOP">Top</option>
+              <option value="JUNGLE">Jungle</option>
+              <option value="MIDDLE">Mid</option>
+              <option value="BOTTOM">Bot</option>
+              <option value="UTILITY">Support</option>
+            </select>
+            <button id="recsBtn" class="primary">Analyze my games</button>
+          </div>
+        </header>
+        <p class="muted">Scores blend your champion mastery, winrate (smoothed), KDA, and recent play volume from your last 30 games — the champs you actually win on, not just the ones you like.</p>
+        <div id="recsStatus" class="notice hidden"></div>
+        <div id="recsList" class="recs-list"></div>
+      </section>
+
+      <!-- ============================ SETTINGS ============================ -->
+      <section id="view-settings" class="view hidden">
+        <header class="view-header"><h1>Settings</h1></header>
+        <div class="settings-card">
+          <label>Riot API key
+            <input id="cfgKey" type="password" placeholder="RGAPI-xxxxxxxx-…">
+            <small>Free at <a href="https://developer.riotgames.com" target="_blank" rel="noreferrer">developer.riotgames.com</a> — sign in, copy the Development API Key. Dev keys expire every 24h; just paste a fresh one. Stored only in a local file on this machine.</small>
+          </label>
+          <label>Region / platform
+            <select id="cfgPlatform"></select>
+          </label>
+          <label>Your Riot ID
+            <input id="cfgRiotId" placeholder="GameName#TAG">
+            <small>Used for “For You” recommendations and as the spectate fallback when no local game is detected.</small>
+          </label>
+          <label>League install folder <span class="muted">(optional)</span>
+            <input id="cfgLeaguePath" placeholder="C:\Riot Games\League of Legends">
+            <small>Only needed if the client isn’t auto-detected.</small>
+          </label>
+          <button id="saveCfg" class="primary">Save</button>
+          <span id="cfgSaved" class="saved-msg hidden">Saved ✓</span>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

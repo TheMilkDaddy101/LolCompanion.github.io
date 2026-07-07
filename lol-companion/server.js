@@ -1,0 +1,206 @@
+// LoL Companion — a lightweight local alternative to Porofessor / u.gg /
+// Mobalytics. Zero dependencies: run `node server.js` and open the printed URL.
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { getConfig, saveConfig, publicConfig } from './lib/config.js';
+import { lcuGet, lcuAvailable } from './lib/lcu.js';
+import { liveGet, liveAvailable } from './lib/live.js';
+import { accountByRiotId, activeGameByPuuid, PLATFORMS } from './lib/riot.js';
+import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const PORT = Number(process.env.PORT || 3577);
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon'
+};
+
+function sendJson(res, status, data) {
+  const body = JSON.stringify(data);
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(body);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (c) => {
+      data += c;
+      if (data.length > 1e6) reject(new Error('Body too large'));
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+// Figure out the current live game and its 10 participants, preferring the
+// local game client (works in any mode, zero API calls), falling back to
+// spectator-v5 for the configured Riot ID.
+async function detectLiveGame(riotIdOverride) {
+  const cfg = getConfig();
+  try {
+    const [players, stats] = await Promise.all([liveGet('playerlist'), liveGet('gamestats')]);
+    return {
+      source: 'local-client',
+      gameMode: stats.gameMode,
+      gameTime: stats.gameTime,
+      participants: players.map((p) => ({
+        riotId: p.riotId,
+        championName: p.championName,
+        team: p.team, // ORDER / CHAOS
+        position: p.position || '',
+        level: p.level,
+        scores: p.scores
+      }))
+    };
+  } catch {
+    // Not in a running game locally — try spectating the configured player.
+  }
+  const riotId = riotIdOverride || cfg.riotId;
+  if (!riotId) {
+    const err = new Error('No live game found on this machine, and no Riot ID is configured to spectate.');
+    err.status = 404;
+    throw err;
+  }
+  const account = await accountByRiotId(riotId, cfg.platform);
+  let game;
+  try {
+    game = await activeGameByPuuid(account.puuid, cfg.platform);
+  } catch (e) {
+    if (e.status === 404) {
+      const err = new Error(`${riotId} is not currently in a game.`);
+      err.status = 404;
+      throw err;
+    }
+    throw e;
+  }
+  return {
+    source: 'spectator',
+    gameMode: game.gameMode,
+    gameLength: game.gameLength,
+    participants: game.participants.map((p) => ({
+      riotId: p.riotId || null,
+      puuid: p.puuid,
+      championId: p.championId,
+      team: p.teamId === 100 ? 'ORDER' : 'CHAOS',
+      spells: [p.spell1Id, p.spell2Id]
+    }))
+  };
+}
+
+const routes = {
+  'GET /api/health': async () => {
+    const [client, inGame] = await Promise.all([lcuAvailable(), liveAvailable()]);
+    return { clientDetected: client, inGame, ...publicConfig(), platforms: PLATFORMS };
+  },
+
+  'GET /api/config': async () => publicConfig(),
+
+  'POST /api/config': async (req) => {
+    const body = JSON.parse((await readBody(req)) || '{}');
+    saveConfig(body);
+    return publicConfig();
+  },
+
+  'GET /api/lcu/summoner': async () => lcuGet('/lol-summoner/v1/current-summoner'),
+  'GET /api/lcu/champselect': async () => lcuGet('/lol-champ-select/v1/session'),
+  'GET /api/lcu/gameflow': async () => lcuGet('/lol-gameflow/v1/gameflow-phase'),
+
+  'GET /api/live/allgamedata': async () => liveGet('allgamedata'),
+
+  'GET /api/scout': async (req, url) => detectLiveGame(url.searchParams.get('riotId') || undefined),
+
+  'GET /api/scout/player': async (req, url) => {
+    const cfg = getConfig();
+    return playerDossier({
+      riotId: url.searchParams.get('riotId') || undefined,
+      puuid: url.searchParams.get('puuid') || undefined,
+      championId: Number(url.searchParams.get('championId')) || null,
+      platform: url.searchParams.get('platform') || cfg.platform
+    });
+  },
+
+  'GET /api/summoner': async (req, url) => {
+    const cfg = getConfig();
+    const riotId = url.searchParams.get('riotId');
+    if (!riotId) {
+      const err = new Error('riotId query parameter required (GameName#TAG)');
+      err.status = 400;
+      throw err;
+    }
+    return summonerBundle(riotId, url.searchParams.get('platform') || cfg.platform, {
+      count: Math.min(20, Number(url.searchParams.get('count')) || 10),
+      start: Number(url.searchParams.get('start')) || 0
+    });
+  },
+
+  'GET /api/recommendations': async (req, url) => {
+    const cfg = getConfig();
+    const riotId = url.searchParams.get('riotId') || cfg.riotId;
+    if (!riotId) {
+      const err = new Error('Set your Riot ID in Settings first so I know whose games to analyze.');
+      err.status = 400;
+      throw err;
+    }
+    return recommendations(riotId, url.searchParams.get('platform') || cfg.platform);
+  }
+};
+
+function serveStatic(req, res, url) {
+  let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
+  filePath = path.normalize(filePath).replace(/^(\.\.[/\\])+/, '');
+  const full = path.join(PUBLIC_DIR, filePath);
+  if (!full.startsWith(PUBLIC_DIR)) {
+    res.writeHead(403).end();
+    return;
+  }
+  fs.readFile(full, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream' });
+    res.end(data);
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const handler = routes[`${req.method} ${url.pathname}`];
+  if (handler) {
+    try {
+      const result = await handler(req, url);
+      sendJson(res, 200, result ?? null);
+    } catch (err) {
+      sendJson(res, err.status && err.status >= 400 && err.status < 600 ? err.status : 500, {
+        error: err.message || 'Internal error'
+      });
+    }
+    return;
+  }
+  if (url.pathname.startsWith('/api/')) {
+    sendJson(res, 404, { error: `No such endpoint: ${url.pathname}` });
+    return;
+  }
+  serveStatic(req, res, url);
+});
+
+server.listen(PORT, '127.0.0.1', () => {
+  console.log('');
+  console.log('  LoL Companion is running');
+  console.log(`  ->  http://localhost:${PORT}`);
+  console.log('');
+  console.log('  Tips:');
+  console.log('   - Add your (free) Riot API key in Settings: https://developer.riotgames.com');
+  console.log('   - Keep this window open while you play. Ctrl+C to quit.');
+  console.log('');
+});
