@@ -60,8 +60,14 @@ async function fetchStats(kind, championId, queueKey) {
     err.status = 400;
     throw err;
   }
+  // Cache is keyed by the CURRENT patch, so the moment Riot ships a new
+  // patch every cached build is stale by name and gets refetched — builds
+  // track the live meta with zero manual updates. (If u.gg hasn't published
+  // the new patch yet, the fetch below falls back to the previous patch,
+  // and we retry the new one after the normal TTL.)
   const patch = await currentPatch();
-  const cacheFile = path.join(CACHE_DIR, `${kind}_${queueKey}_${championId}.json`);
+  const cachePrefix = `${kind}_${queueKey}_${championId}_`;
+  const cacheFile = path.join(CACHE_DIR, `${cachePrefix}${patch}.json`);
   try {
     const stat = fs.statSync(cacheFile);
     if (Date.now() - stat.mtimeMs < CACHE_TTL) {
@@ -81,6 +87,12 @@ async function fetchStats(kind, championId, queueKey) {
           try {
             fs.mkdirSync(CACHE_DIR, { recursive: true });
             fs.writeFileSync(cacheFile, JSON.stringify(result));
+            // Sweep this champion's entries from older patches.
+            for (const f of fs.readdirSync(CACHE_DIR)) {
+              if (f.startsWith(cachePrefix) && f !== path.basename(cacheFile)) {
+                fs.rmSync(path.join(CACHE_DIR, f), { force: true });
+              }
+            }
           } catch { /* disk cache best-effort */ }
           return result;
         } catch (err) {
