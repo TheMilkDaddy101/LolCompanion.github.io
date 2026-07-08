@@ -16,6 +16,7 @@ bogging your machine down.
 | --- | --- | --- |
 | 🔴 **Live Game** | Auto-detects what you're doing, in order: **in game** (local game client) → **champ select** → **pregame lobby** (your party members, before queue even pops) → spectator API for any Riot ID. Scouts every visible player: rank + LP + winrate, last-5 form dots, main champions by mastery, and tags like *Hot streak*, *One-trick alert*, *Rusty*, *Rough patch*. Opening the app while in a lobby scouts your teammates automatically. | Porofessor |
 | 🔎 **Summoner** | Look up any Riot ID: profile, Solo/Flex ranks, top mastery champions, and paged match history with KDA, CS/min, damage, and full item builds. | u.gg / op.gg |
+| 🛠️ **Builds** | Current-patch meta for any champion in **Ranked Solo, Ranked Flex, ARAM, and Arena**: runes + shards, summoner spells, skill priority and level order, starting/core items, 4th–6th item options with winrates, and matchup lists (toughest counters / best targets). Click any champion portrait in the Live tab to jump straight to their build. No API key needed for this tab. | u.gg / League of Graphs |
 | 🏆 **For You** | Analyzes your last 30 games + champion mastery and scores every champion you play — smoothed winrate, KDA, play volume, and mastery depth — filterable by role. Tells you what you should actually be picking. | Mobalytics |
 | ⚙️ **Settings** | API key, region, your Riot ID, optional League install path. | — |
 
@@ -70,9 +71,13 @@ Browser UI (public/)  ──►  local Node server (server.js)
 - **Dev key limits** (20 req/s, 100 req/2 min) mean a full first-time scout takes ~30–60 seconds.
   Apply for a free *Personal* app key on the Riot developer portal for higher limits — it works
   identically, just paste it in Settings.
-- Recommendations are based on **your own data** (mastery + performance). Global meta winrates /
-  tier lists require aggregating millions of matches, which the big sites do server-side; a
-  pluggable meta source is a natural future upgrade.
+- Recommendations ("For You") are based on **your own data** (mastery + performance); the
+  **Builds** tab covers the global meta side.
+- Builds/matchups come from u.gg's public stats CDN — the same JSON their website loads. It's an
+  unofficial, undocumented feed: the app parses it defensively (unrecognized sections are hidden,
+  not fatal), caches each champion+queue for 12 hours to stay polite, and exposes the raw upstream
+  JSON at `/api/meta/raw?championId=&queue=` for debugging if u.gg changes their format. Stats and
+  build data are © their aggregators; this is for personal use.
 - In ranked champ select, Riot hides enemy names until loading screen — scouting the enemy team
   starts working once the game loads.
 - This folder is a **local app**, not part of the GitHub Pages site (browsers can't talk to the

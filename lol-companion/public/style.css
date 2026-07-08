@@ -314,6 +314,61 @@ p.muted { margin-bottom: 14px; max-width: 720px; }
 .rec-stats { display: flex; gap: 14px; font-size: 12px; color: var(--text-dim); white-space: nowrap; }
 .rec-stats b { color: var(--text); }
 
+/* -------------------------------------------------------------- builds */
+.champ-portrait.clickable { cursor: pointer; transition: border-color 0.15s; }
+.champ-portrait.clickable:hover { border-color: var(--gold); }
+
+.build-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+.build-champ { width: 56px; height: 56px; border-radius: 10px; border: 2px solid var(--gold); }
+.build-title { font-size: 17px; font-weight: 600; color: var(--gold-bright); }
+
+.build-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 1000px) { .build-grid { grid-template-columns: 1fr; } }
+
+.build-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+.build-card h2 { font-size: 14px; color: var(--gold); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.sub-h { font-size: 12px; color: var(--text-dim); margin: 12px 0 6px; font-weight: 600; }
+.sub-h:first-child { margin-top: 0; }
+
+.icon-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.icon-cell { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 74px; text-align: center; }
+.icon-cell img { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-hover); }
+.icon-cell.dim { opacity: 0.55; }
+.icon-label { font-size: 10.5px; color: var(--text-dim); line-height: 1.25; }
+.icon-sub { font-size: 11px; color: var(--gold); font-weight: 600; }
+
+.skill-priority { font-size: 20px; font-weight: 700; color: var(--gold-bright); letter-spacing: 2px; }
+.skill-seq { display: flex; gap: 4px; flex-wrap: wrap; }
+.skill-box {
+  width: 26px; height: 26px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px; border: 1px solid var(--border);
+  font-size: 12px; font-weight: 700; background: var(--bg-hover);
+}
+.skill-Q { color: #6aa7f0; } .skill-W { color: #3ecf7a; }
+.skill-E { color: #e6c15a; } .skill-R { color: #e05a5a; }
+
+.matchup-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.matchup-icon { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--border); }
+.matchup-name { flex: 1; font-size: 13px; }
+.matchup-wr { font-weight: 700; font-size: 13px; }
+.matchup-wr.bad { color: var(--loss); }
+.matchup-wr.good { color: var(--win); }
+
 /* ------------------------------------------------------------ settings */
 .settings-card {
   background: var(--bg-card);

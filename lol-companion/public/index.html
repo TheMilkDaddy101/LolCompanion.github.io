@@ -16,6 +16,7 @@
       </div>
       <button class="nav-btn active" data-view="live">🔴 Live Game</button>
       <button class="nav-btn" data-view="summoner">🔎 Summoner</button>
+      <button class="nav-btn" data-view="builds">🛠️ Builds</button>
       <button class="nav-btn" data-view="recs">🏆 For You</button>
       <button class="nav-btn" data-view="settings">⚙️ Settings</button>
       <div class="status-box" id="statusBox">
@@ -71,6 +72,43 @@
               <h2>Top Champions</h2>
               <div id="masteryList" class="mastery-list"></div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================= BUILDS ============================= -->
+      <section id="view-builds" class="view hidden">
+        <header class="view-header">
+          <h1>Builds &amp; Matchups</h1>
+          <div class="header-actions">
+            <input id="buildChamp" list="champList" placeholder="Champion…">
+            <datalist id="champList"></datalist>
+            <select id="buildQueue">
+              <option value="ranked_solo">Ranked Solo</option>
+              <option value="ranked_flex">Ranked Flex</option>
+              <option value="aram">ARAM</option>
+              <option value="arena">Arena</option>
+            </select>
+            <select id="buildRole">
+              <option value="">Auto role</option>
+              <option value="TOP">Top</option>
+              <option value="JUNGLE">Jungle</option>
+              <option value="MID">Mid</option>
+              <option value="ADC">ADC</option>
+              <option value="SUPPORT">Support</option>
+            </select>
+            <button id="buildBtn" class="primary">Get build</button>
+          </div>
+        </header>
+        <p class="muted">Current-patch aggregate data (via u.gg's public stats feed, cached locally for 12h). Tip: in the Live tab, click any champion portrait to jump here with that champ loaded.</p>
+        <div id="buildStatus" class="notice hidden"></div>
+        <div id="buildResult" class="hidden">
+          <div class="build-summary" id="buildSummary"></div>
+          <div class="build-grid">
+            <div class="build-card" id="runesCard"><h2>Runes</h2><div class="card-body"></div></div>
+            <div class="build-card" id="itemsCard"><h2>Items</h2><div class="card-body"></div></div>
+            <div class="build-card" id="skillsCard"><h2>Skills &amp; Spells</h2><div class="card-body"></div></div>
+            <div class="build-card" id="matchupsCard"><h2>Matchups</h2><div class="card-body"></div></div>
           </div>
         </div>
       </section>

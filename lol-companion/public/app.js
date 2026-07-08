@@ -64,6 +64,50 @@ const DD = {
   profileIcon(id) {
     if (id == null || !this.version) return '';
     return `https://ddragon.leagueoflegends.com/cdn/${this.version}/img/profileicon/${id}.png`;
+  },
+
+  // ---- lazily loaded static data for the Builds tab ----
+  items: null,        // id -> { name }
+  perks: null,        // perkId -> { name, icon }  (styles + runes)
+  spellsByKey: null,  // numeric key -> { id, name }
+  shardNames: {
+    5001: 'Health Scaling', 5002: 'Armor', 5003: 'Magic Resist', 5005: 'Attack Speed',
+    5007: 'Ability Haste', 5008: 'Adaptive Force', 5010: 'Move Speed',
+    5011: 'Health', 5013: 'Tenacity & Slow Resist'
+  },
+
+  async loadStatics() {
+    if (this.items || !this.version) return;
+    const base = `https://ddragon.leagueoflegends.com/cdn/${this.version}/data/en_US`;
+    const [items, runes, spells] = await Promise.all([
+      fetch(`${base}/item.json`).then((r) => r.json()),
+      fetch(`${base}/runesReforged.json`).then((r) => r.json()),
+      fetch(`${base}/summoner.json`).then((r) => r.json())
+    ]);
+    this.items = items.data;
+    this.perks = new Map();
+    for (const style of runes) {
+      this.perks.set(style.id, { name: style.name, icon: style.icon });
+      for (const slot of style.slots) {
+        for (const rune of slot.runes) this.perks.set(rune.id, { name: rune.name, icon: rune.icon });
+      }
+    }
+    this.spellsByKey = new Map();
+    for (const s of Object.values(spells.data)) this.spellsByKey.set(Number(s.key), { id: s.id, name: s.name });
+  },
+
+  itemName(id) { return this.items?.[id]?.name || `Item ${id}`; },
+  perkInfo(id) { return this.perks?.get(Number(id)) || null; },
+  perkIcon(id) {
+    const p = this.perkInfo(id);
+    return p ? `https://ddragon.leagueoflegends.com/cdn/img/${p.icon}` : '';
+  },
+  spellInfo(key) { return this.spellsByKey?.get(Number(key)) || null; },
+  spellIcon(key) {
+    const s = this.spellInfo(key);
+    return s && this.version
+      ? `https://ddragon.leagueoflegends.com/cdn/${this.version}/img/spell/${s.id}.png`
+      : '';
   }
 };
 
@@ -160,10 +204,18 @@ function fillPlatformSelects(platforms) {
 }
 
 /* -------------------------------------------------------------- live view */
+let liveQueueHint = 'ranked_solo';
+
 function playerCardSkeleton(p) {
   const card = el('div', 'player-card');
   const champ = p.championId ?? p.championName ?? null;
-  card.appendChild(portraitEl(champ));
+  const portrait = portraitEl(champ);
+  if (champ != null && DD.champ(champ)) {
+    portrait.classList.add('clickable');
+    portrait.title = `${DD.champName(champ)} — click for build & matchups`;
+    portrait.addEventListener('click', () => openBuildFor(champ, liveQueueHint));
+  }
+  card.appendChild(portrait);
   const main = el('div', 'player-main');
   main.appendChild(el('div', 'player-name', p.riotId || 'Hidden name'));
   const sub = champ != null && DD.champ(champ)
@@ -223,6 +275,8 @@ async function scoutGame() {
   try {
     const spectateId = $('#spectateInput').value.trim();
     const game = await api(`/api/scout${spectateId ? `?riotId=${encodeURIComponent(spectateId)}` : ''}`);
+    const mode = (game.gameMode || '').toUpperCase();
+    liveQueueHint = mode.includes('ARAM') ? 'aram' : mode.includes('CHERRY') || mode.includes('ARENA') ? 'arena' : 'ranked_solo';
     const sourceLabels = {
       'local-client': 'your running game',
       champselect: 'champ select',
@@ -479,6 +533,208 @@ async function loadRecs() {
 $('#recsBtn').addEventListener('click', loadRecs);
 $('#recsRole').addEventListener('change', renderRecs);
 
+/* -------------------------------------------------------------- builds view */
+function switchView(name) {
+  document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
+  document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
+  $(`#view-${name}`).classList.remove('hidden');
+}
+
+function fillChampDatalist() {
+  const dl = $('#champList');
+  if (dl.options.length) return;
+  const names = [...new Set([...DD.champByKey.values()].map((c) => c.name))].sort();
+  for (const n of names) {
+    const opt = document.createElement('option');
+    opt.value = n;
+    dl.appendChild(opt);
+  }
+}
+
+// Jump to the Builds tab pre-loaded — used by Live-tab portrait clicks.
+function openBuildFor(championIdOrName, queueHint) {
+  const champ = DD.champ(championIdOrName);
+  if (!champ) return;
+  switchView('builds');
+  fillChampDatalist();
+  $('#buildChamp').value = champ.name;
+  if (queueHint) $('#buildQueue').value = queueHint;
+  loadBuild();
+}
+
+function iconRow(entries) {
+  const row = el('div', 'icon-row');
+  for (const { src, label, sub, dim } of entries) {
+    const cell = el('div', `icon-cell${dim ? ' dim' : ''}`);
+    if (src) {
+      const img = el('img');
+      img.src = src;
+      img.alt = label || '';
+      img.title = label || '';
+      img.loading = 'lazy';
+      cell.appendChild(img);
+    }
+    if (label) cell.appendChild(el('div', 'icon-label', label));
+    if (sub) cell.appendChild(el('div', 'icon-sub', sub));
+    row.appendChild(cell);
+  }
+  return row;
+}
+
+function renderBuild(data) {
+  const champ = DD.champ($('#buildChamp').value);
+  // summary strip
+  const sum = $('#buildSummary');
+  sum.innerHTML = '';
+  if (champ) sum.appendChild(champImg(champ.name, 'build-champ'));
+  const head = el('div');
+  head.appendChild(el('div', 'build-title', `${champ ? champ.name : '?'} — ${data.role === 'NONE' ? data.queue.replace(/_/g, ' ') : data.role}`));
+  const bits = [];
+  if (data.stats?.winrate != null) bits.push(`${data.stats.winrate}% WR`);
+  if (data.stats?.matches) bits.push(`${data.stats.matches.toLocaleString()} games`);
+  bits.push(`patch ${data.patch.replace('_', '.')}`);
+  head.appendChild(el('div', 'muted', bits.join(' · ')));
+  if (data.availableRoles?.length > 1) {
+    head.appendChild(el('div', 'icon-sub', `Roles with data: ${data.availableRoles.join(', ')}`));
+  }
+  sum.appendChild(head);
+
+  // runes
+  const runes = $('#runesCard .card-body');
+  runes.innerHTML = '';
+  if (data.runes?.perks?.length) {
+    const styleName = (id) => DD.perkInfo(id)?.name || '';
+    if (data.runes.primaryStyle) runes.appendChild(el('div', 'sub-h', `Primary: ${styleName(data.runes.primaryStyle)}`));
+    runes.appendChild(iconRow(data.runes.perks.slice(0, 4).map((id) => ({ src: DD.perkIcon(id), label: DD.perkInfo(id)?.name || id }))));
+    if (data.runes.subStyle) runes.appendChild(el('div', 'sub-h', `Secondary: ${styleName(data.runes.subStyle)}`));
+    runes.appendChild(iconRow(data.runes.perks.slice(4, 6).map((id) => ({ src: DD.perkIcon(id), label: DD.perkInfo(id)?.name || id }))));
+    if (data.shards?.length) {
+      const chips = el('div', 'tag-row');
+      for (const s of data.shards) chips.appendChild(el('span', 'tag', DD.shardNames[s] || `Shard ${s}`));
+      runes.appendChild(el('div', 'sub-h', 'Shards'));
+      runes.appendChild(chips);
+    }
+  } else {
+    runes.appendChild(el('div', 'muted', 'No rune data for this queue.'));
+  }
+
+  // items
+  const items = $('#itemsCard .card-body');
+  items.innerHTML = '';
+  const itemEntries = (ids) => (ids || []).map((id) => ({ src: DD.itemIcon(id), label: DD.itemName(id) }));
+  if (data.startItems?.length) {
+    items.appendChild(el('div', 'sub-h', 'Start'));
+    items.appendChild(iconRow(itemEntries(data.startItems)));
+  }
+  if (data.coreItems?.length) {
+    items.appendChild(el('div', 'sub-h', 'Core'));
+    items.appendChild(iconRow(itemEntries(data.coreItems)));
+  }
+  (data.itemOptions || []).forEach((slot, i) => {
+    if (!slot?.length) return;
+    items.appendChild(el('div', 'sub-h', `${i + 4}th item options`));
+    items.appendChild(iconRow(slot.map((it) => ({
+      src: DD.itemIcon(it.id), label: DD.itemName(it.id),
+      sub: it.winrate != null ? `${it.winrate}%` : ''
+    }))));
+  });
+  if (!items.children.length) items.appendChild(el('div', 'muted', 'No item data.'));
+
+  // skills + spells
+  const skills = $('#skillsCard .card-body');
+  skills.innerHTML = '';
+  if (data.spells?.length) {
+    skills.appendChild(el('div', 'sub-h', 'Summoner spells'));
+    skills.appendChild(iconRow(data.spells.map((k) => ({ src: DD.spellIcon(k), label: DD.spellInfo(k)?.name || `Spell ${k}` }))));
+  }
+  if (data.skills?.priority) {
+    skills.appendChild(el('div', 'sub-h', 'Skill priority'));
+    skills.appendChild(el('div', 'skill-priority', data.skills.priority));
+  }
+  if (data.skills?.order?.length) {
+    skills.appendChild(el('div', 'sub-h', 'First levels'));
+    const seq = el('div', 'skill-seq');
+    data.skills.order.forEach((k, i) => {
+      const box = el('span', `skill-box skill-${k}`, k);
+      box.title = `Level ${i + 1}`;
+      seq.appendChild(box);
+    });
+    skills.appendChild(seq);
+  }
+  if (!skills.children.length) skills.appendChild(el('div', 'muted', 'No skill data.'));
+}
+
+function renderMatchups(data) {
+  const body = $('#matchupsCard .card-body');
+  body.innerHTML = '';
+  const rows = data?.matchups || [];
+  if (!rows.length) {
+    body.appendChild(el('div', 'muted', 'No matchup data for this queue.'));
+    return;
+  }
+  const section = (title, list, tone) => {
+    body.appendChild(el('div', 'sub-h', title));
+    for (const m of list) {
+      const row = el('div', 'matchup-row');
+      row.appendChild(champImg(m.championId, 'matchup-icon'));
+      row.appendChild(el('span', 'matchup-name', DD.champName(m.championId)));
+      row.appendChild(el('span', `matchup-wr ${tone}`, `${m.winrate}% WR`));
+      row.appendChild(el('span', 'icon-sub', `${m.matches.toLocaleString()}g`));
+      body.appendChild(row);
+    }
+  };
+  // winrate here = OUR champ's winrate vs that enemy; never show the same
+  // matchup in both lists when the sample is small
+  const half = Math.max(1, Math.min(5, Math.floor(rows.length / 2)));
+  section('Toughest counters', rows.slice(0, half), 'bad');
+  if (rows.length > 1) section('Best targets', rows.slice(-half).reverse(), 'good');
+}
+
+async function loadBuild() {
+  const status = $('#buildStatus');
+  const champ = DD.champ($('#buildChamp').value);
+  if (!champ) {
+    status.classList.remove('hidden');
+    status.classList.add('error');
+    status.textContent = 'Pick a champion first.';
+    return;
+  }
+  const key = [...DD.champByKey.entries()].find(([, v]) => v === champ)?.[0];
+  const queue = $('#buildQueue').value;
+  const role = queue === 'aram' || queue === 'arena' ? '' : $('#buildRole').value;
+  status.classList.remove('hidden', 'error');
+  status.textContent = 'Fetching current meta data…';
+  $('#buildBtn').disabled = true;
+  try {
+    await DD.loadStatics();
+    const params = `championId=${key}&queue=${queue}${role ? `&role=${role}` : ''}`;
+    const build = await api(`/api/meta/build?${params}`);
+    renderBuild(build);
+    $('#buildResult').classList.remove('hidden');
+    status.classList.add('hidden');
+    try {
+      renderMatchups(await api(`/api/meta/matchups?${params}`));
+    } catch (err) {
+      $('#matchupsCard .card-body').innerHTML = '';
+      $('#matchupsCard .card-body').appendChild(el('div', 'muted', err.message));
+    }
+  } catch (err) {
+    status.classList.remove('hidden');
+    status.classList.add('error');
+    status.textContent = err.message;
+    $('#buildResult').classList.add('hidden');
+  } finally {
+    $('#buildBtn').disabled = false;
+  }
+}
+
+$('#buildBtn').addEventListener('click', loadBuild);
+$('#buildChamp').addEventListener('keydown', (e) => e.key === 'Enter' && loadBuild());
+$('#buildQueue').addEventListener('change', () => {
+  const q = $('#buildQueue').value;
+  $('#buildRole').classList.toggle('hidden', q === 'aram' || q === 'arena');
+});
+
 /* ---------------------------------------------------------- settings view */
 async function loadSettings() {
   const cfg = await api('/api/config');
@@ -509,6 +765,7 @@ $('#saveCfg').addEventListener('click', async () => {
 /* ------------------------------------------------------------------ boot */
 (async function boot() {
   await DD.init();
+  fillChampDatalist();
   await refreshStatus();
   await loadSettings();
   setInterval(refreshStatus, 15_000);

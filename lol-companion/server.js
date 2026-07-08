@@ -9,6 +9,7 @@ import { lcuGet, lcuAvailable } from './lib/lcu.js';
 import { liveGet, liveAvailable } from './lib/live.js';
 import { accountByRiotId, activeGameByPuuid, PLATFORMS } from './lib/riot.js';
 import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.js';
+import { buildFor, matchupsFor, rawStats, QUEUES } from './lib/meta.js';
 import { appDir } from './lib/paths.js';
 
 const PUBLIC_DIR = path.join(appDir(), 'public');
@@ -199,6 +200,38 @@ const routes = {
       start: Number(url.searchParams.get('start')) || 0
     });
   },
+
+  // Meta builds & matchups (u.gg public stats CDN, cached 12h on disk).
+  // No Riot API key needed for these.
+  'GET /api/meta/build': async (req, url) => {
+    const championId = Number(url.searchParams.get('championId'));
+    if (!championId) throw Object.assign(new Error('championId required'), { status: 400 });
+    return buildFor(
+      championId,
+      url.searchParams.get('queue') || 'ranked_solo',
+      url.searchParams.get('role') || null
+    );
+  },
+
+  'GET /api/meta/matchups': async (req, url) => {
+    const championId = Number(url.searchParams.get('championId'));
+    if (!championId) throw Object.assign(new Error('championId required'), { status: 400 });
+    return matchupsFor(
+      championId,
+      url.searchParams.get('queue') || 'ranked_solo',
+      url.searchParams.get('role') || null
+    );
+  },
+
+  // Raw upstream JSON for debugging format drift.
+  'GET /api/meta/raw': async (req, url) =>
+    rawStats(
+      url.searchParams.get('kind') || 'overview',
+      Number(url.searchParams.get('championId')),
+      url.searchParams.get('queue') || 'ranked_solo'
+    ),
+
+  'GET /api/meta/queues': async () => Object.keys(QUEUES),
 
   'GET /api/recommendations': async (req, url) => {
     const cfg = getConfig();
