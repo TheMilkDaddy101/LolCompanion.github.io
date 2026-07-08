@@ -12,9 +12,11 @@ import { appDir } from './paths.js';
 
 const CACHE_DIR = path.join(appDir(), 'cache', 'meta');
 const CACHE_TTL = 12 * 3600_000;
-const UA = 'lol-companion (personal local tool)';
+// Some CDNs reject obviously non-browser user agents.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
-const API_VERSIONS = ['1.5.0', '1.5.1', '1.4.0'];
+const PATH_PREFIXES = ['1.5', '1.1'];
+const API_VERSIONS = ['1.5.0', '1.4.0'];
 // u.gg queue ids we try, in order, per friendly name.
 export const QUEUES = {
   ranked_solo: ['ranked_solo_5x5'],
@@ -36,23 +38,40 @@ export async function currentPatch() {
   return patchCache.value;
 }
 
-function previousPatch(patch) {
+function stepBack(patch) {
   const [major, minor] = patch.split('_').map(Number);
   return minor > 1 ? `${major}_${minor - 1}` : `${major - 1}_24`;
 }
 
+// Riot's marketing patch numbers ("26.13") diverged from Data Dragon's
+// internal versions ("16.13") — major + 10. u.gg has used both styles, so
+// try each, newest first.
+function patchCandidates(ddPatch) {
+  const [major, minor] = ddPatch.split('_').map(Number);
+  const marketing = `${major + 10}_${minor}`;
+  return [ddPatch, marketing, stepBack(ddPatch), stepBack(marketing)];
+}
+
 async function fetchJson(url) {
-  const res = await fetch(url, { headers: { 'User-Agent': UA } });
+  const res = await fetch(url, {
+    headers: { 'User-Agent': UA, Accept: 'application/json', Referer: 'https://u.gg/' }
+  });
   if (!res.ok) {
-    const err = new Error(`meta source returned ${res.status}`);
+    const err = new Error(`HTTP ${res.status}`);
     err.status = res.status;
     throw err;
   }
   return res.json();
 }
 
-// Try patch → previous patch, queue-name variants, and API versions until
-// one URL answers. Returns { json, patch, queue } or throws the last error.
+// Remember the URL shape that worked so later champions go straight there.
+let workingShape = null; // { prefix, ver }
+// Attempts from the most recent failed lookup, for /api/meta/diagnose.
+export let lastAttempts = [];
+
+// Try patch numbering schemes, queue-name variants, URL prefixes, and API
+// versions until one URL answers. Returns { json, patch, queue } or throws
+// with a summary of everything tried.
 async function fetchStats(kind, championId, queueKey) {
   const queues = QUEUES[queueKey];
   if (!queues) {
@@ -62,9 +81,7 @@ async function fetchStats(kind, championId, queueKey) {
   }
   // Cache is keyed by the CURRENT patch, so the moment Riot ships a new
   // patch every cached build is stale by name and gets refetched — builds
-  // track the live meta with zero manual updates. (If u.gg hasn't published
-  // the new patch yet, the fetch below falls back to the previous patch,
-  // and we retry the new one after the normal TTL.)
+  // track the live meta with zero manual updates.
   const patch = await currentPatch();
   const cachePrefix = `${kind}_${queueKey}_${championId}_`;
   const cacheFile = path.join(CACHE_DIR, `${cachePrefix}${patch}.json`);
@@ -76,13 +93,18 @@ async function fetchStats(kind, championId, queueKey) {
   } catch {
     // cache miss
   }
-  let lastErr = null;
-  for (const p of [patch, previousPatch(patch)]) {
+
+  const shapes = workingShape
+    ? [workingShape, ...shapeList().filter((s) => s.prefix !== workingShape.prefix || s.ver !== workingShape.ver)]
+    : shapeList();
+  const attempts = [];
+  for (const p of patchCandidates(patch)) {
     for (const queue of queues) {
-      for (const ver of API_VERSIONS) {
-        const url = `https://stats2.u.gg/lol/1.5/${kind}/${p}/${queue}/${championId}/${ver}.json`;
+      for (const shape of shapes) {
+        const url = `https://stats2.u.gg/lol/${shape.prefix}/${kind}/${p}/${queue}/${championId}/${shape.ver}.json`;
         try {
           const json = await fetchJson(url);
+          workingShape = shape;
           const result = { json, patch: p, queue };
           try {
             fs.mkdirSync(CACHE_DIR, { recursive: true });
@@ -96,17 +118,27 @@ async function fetchStats(kind, championId, queueKey) {
           } catch { /* disk cache best-effort */ }
           return result;
         } catch (err) {
-          lastErr = err;
+          attempts.push({ url, error: err.message });
         }
       }
     }
   }
+  lastAttempts = attempts;
+  const statuses = [...new Set(attempts.map((a) => a.error))].join(', ');
   const err = new Error(
-    `Couldn't fetch ${kind} data for this champion/queue (last error: ${lastErr?.message}). ` +
-    'u.gg may not publish this queue, or the format moved — try another queue.'
+    `Couldn't fetch ${kind} data (tried ${attempts.length} URL variants; results: ${statuses}). ` +
+    'Open /api/meta/diagnose for the full list — u.gg may have moved this feed.'
   );
   err.status = 502;
   throw err;
+}
+
+function shapeList() {
+  const shapes = [];
+  for (const prefix of PATH_PREFIXES) {
+    for (const ver of API_VERSIONS) shapes.push({ prefix, ver });
+  }
+  return shapes;
 }
 
 // Leaf arrays store matches and wins in an order that has drifted between

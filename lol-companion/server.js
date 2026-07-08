@@ -9,7 +9,7 @@ import { lcuGet, lcuAvailable } from './lib/lcu.js';
 import { liveGet, liveAvailable } from './lib/live.js';
 import { accountByRiotId, activeGameByPuuid, PLATFORMS } from './lib/riot.js';
 import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.js';
-import { buildFor, matchupsFor, rawStats, QUEUES } from './lib/meta.js';
+import { buildFor, matchupsFor, rawStats, QUEUES, lastAttempts, currentPatch } from './lib/meta.js';
 import { appDir } from './lib/paths.js';
 
 const PUBLIC_DIR = path.join(appDir(), 'public');
@@ -245,6 +245,27 @@ const routes = {
     ),
 
   'GET /api/meta/queues': async () => Object.keys(QUEUES),
+
+  // Every URL the meta fetcher tried on its most recent failure, plus a
+  // fresh attempt — paste this output when reporting "builds won't load".
+  'GET /api/meta/diagnose': async (req, url) => {
+    const championId = Number(url.searchParams.get('championId')) || 103; // Ahri
+    const queue = url.searchParams.get('queue') || 'ranked_solo';
+    let outcome;
+    try {
+      const r = await buildFor(championId, queue, null);
+      outcome = { ok: true, patch: r.patch, queue: r.queue, role: r.role };
+    } catch (err) {
+      outcome = { ok: false, error: err.message };
+    }
+    let ddragonPatch = null;
+    try {
+      ddragonPatch = await currentPatch();
+    } catch (err) {
+      ddragonPatch = `unavailable: ${err.message}`;
+    }
+    return { outcome, ddragonPatch, attempts: lastAttempts };
+  },
 
   'GET /api/recommendations': async (req, url) => {
     const cfg = getConfig();
