@@ -2,9 +2,17 @@
 // (gitignored — your Riot API key never leaves your machine).
 import fs from 'node:fs';
 import path from 'node:path';
-import { appDir } from './paths.js';
+import { appDir, dataDir, fallbackDir } from './paths.js';
 
-const CONFIG_PATH = path.join(appDir(), 'config.json');
+// Config is written to the data dir, but read from wherever it exists —
+// covers moving the exe or a location becoming unwritable later.
+function configReadCandidates() {
+  return [...new Set([path.join(dataDir(), 'config.json'), path.join(appDir(), 'config.json'), path.join(fallbackDir(), 'config.json')])];
+}
+
+export function configPath() {
+  return path.join(dataDir(), 'config.json');
+}
 
 const DEFAULTS = {
   riotApiKey: '',
@@ -17,12 +25,16 @@ let cached = null;
 
 export function getConfig() {
   if (cached) return cached;
-  try {
-    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    cached = { ...DEFAULTS, ...raw };
-  } catch {
-    cached = { ...DEFAULTS };
+  for (const file of configReadCandidates()) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      cached = { ...DEFAULTS, ...raw };
+      return cached;
+    } catch {
+      // try next location
+    }
   }
+  cached = { ...DEFAULTS };
   return cached;
 }
 
@@ -33,8 +45,17 @@ export function saveConfig(patch) {
       next[key] = patch[key].trim();
     }
   }
+  try {
+    fs.writeFileSync(configPath(), JSON.stringify(next, null, 2));
+  } catch (e) {
+    const err = new Error(
+      `Could not write settings to ${configPath()} (${e.code || e.message}). ` +
+      'Try moving the app to its own folder, e.g. C:\\LoLCompanion.'
+    );
+    err.status = 500;
+    throw err;
+  }
   cached = next;
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(next, null, 2));
   return next;
 }
 
@@ -45,6 +66,7 @@ export function publicConfig() {
     platform: cfg.platform,
     riotId: cfg.riotId,
     leaguePath: cfg.leaguePath,
-    hasApiKey: Boolean(cfg.riotApiKey)
+    hasApiKey: Boolean(cfg.riotApiKey),
+    configPath: configPath()
   };
 }

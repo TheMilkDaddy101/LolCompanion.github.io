@@ -8,9 +8,9 @@
 // champ per half-day keeps us a polite guest.
 import fs from 'node:fs';
 import path from 'node:path';
-import { appDir } from './paths.js';
+import { dataDir } from './paths.js';
 
-const CACHE_DIR = path.join(appDir(), 'cache', 'meta');
+const CACHE_DIR = path.join(dataDir(), 'cache', 'meta');
 const CACHE_TTL = 12 * 3600_000;
 // Some CDNs reject obviously non-browser user agents.
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';

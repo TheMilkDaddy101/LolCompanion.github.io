@@ -6,9 +6,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getConfig } from './config.js';
-import { appDir } from './paths.js';
+import { dataDir } from './paths.js';
 
-const MATCH_CACHE_DIR = path.join(appDir(), 'cache', 'matches');
+const MATCH_CACHE_DIR = path.join(dataDir(), 'cache', 'matches');
 
 // Platform (game server) → continental routing values.
 const ACCOUNT_REGION = {

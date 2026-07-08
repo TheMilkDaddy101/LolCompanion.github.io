@@ -176,8 +176,12 @@
             <input id="cfgLeaguePath" placeholder="C:\Riot Games\League of Legends">
             <small>Only needed if the client isn’t auto-detected.</small>
           </label>
-          <button id="saveCfg" class="primary">Save</button>
-          <span id="cfgSaved" class="saved-msg hidden">Saved ✓</span>
+          <div>
+            <button id="saveCfg" class="primary">Save</button>
+            <span id="cfgSaved" class="saved-msg hidden">Saved ✓</span>
+          </div>
+          <div id="cfgError" class="notice error hidden"></div>
+          <small id="cfgWhere" class="muted"></small>
         </div>
       </section>
     </main>

@@ -845,6 +845,7 @@ async function loadSettings() {
   $('#cfgLeaguePath').value = cfg.leaguePath || '';
   $('#cfgKey').placeholder = cfg.hasApiKey ? '•••••••• (key saved — paste to replace)' : 'RGAPI-xxxxxxxx-…';
   if ($('#cfgPlatform').options.length) $('#cfgPlatform').value = cfg.platform;
+  if (cfg.configPath) $('#cfgWhere').textContent = `Settings file: ${cfg.configPath}`;
 }
 
 $('#saveCfg').addEventListener('click', async () => {
@@ -854,13 +855,25 @@ $('#saveCfg').addEventListener('click', async () => {
     leaguePath: $('#cfgLeaguePath').value
   };
   if ($('#cfgKey').value.trim()) body.riotApiKey = $('#cfgKey').value.trim();
-  const res = await fetch('/api/config', { method: 'POST', body: JSON.stringify(body) });
-  if (res.ok) {
+  const errBox = $('#cfgError');
+  errBox.classList.add('hidden');
+  let res, data;
+  try {
+    res = await fetch('/api/config', { method: 'POST', body: JSON.stringify(body) });
+    data = await res.json().catch(() => ({}));
+  } catch (e) {
+    res = null;
+    data = { error: 'Could not reach the app — is it still running?' };
+  }
+  if (res && res.ok) {
     $('#cfgKey').value = '';
     $('#cfgSaved').classList.remove('hidden');
     setTimeout(() => $('#cfgSaved').classList.add('hidden'), 2500);
     await refreshStatus();
     await loadSettings();
+  } else {
+    errBox.textContent = data.error || `Save failed (${res ? res.status : 'no response'})`;
+    errBox.classList.remove('hidden');
   }
 });
 

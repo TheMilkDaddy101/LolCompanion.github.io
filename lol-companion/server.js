@@ -353,6 +353,19 @@ function openBrowser(url) {
   exec(cmd, () => {}); // best effort — the URL is printed either way
 }
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log('');
+    console.log(`  LoL Companion is already running — opening http://localhost:${PORT}`);
+    console.log('  (Close the other window first if you meant to restart it.)');
+    openBrowser(`http://localhost:${PORT}`);
+    setTimeout(() => process.exit(0), 1500);
+    return;
+  }
+  console.error('Failed to start:', err.message);
+  process.exit(1);
+});
+
 server.listen(PORT, '127.0.0.1', () => {
   const url = `http://localhost:${PORT}`;
   console.log('');
