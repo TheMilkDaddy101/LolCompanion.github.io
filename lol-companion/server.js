@@ -72,7 +72,10 @@ async function detectPregame() {
       return {
         source: 'champselect',
         participants: [
-          ...mine.map((m) => lcuParticipant(m, 'ORDER')),
+          ...mine.map((m) => ({
+            ...lcuParticipant(m, 'ORDER'),
+            self: m.cellId != null && m.cellId === session.localPlayerCellId
+          })),
           ...theirs.map((m) => lcuParticipant(m, 'CHAOS'))
         ]
       };
@@ -84,10 +87,14 @@ async function detectPregame() {
     const lobby = await lcuGet('/lol-lobby/v2/lobby');
     const members = (lobby.members || []).filter((m) => m.puuid || m.summonerName);
     if (members.length) {
+      const me = lobby.localMember || {};
       return {
         source: 'lobby',
         gameMode: lobby.gameConfig?.gameMode,
-        participants: members.map((m) => lcuParticipant(m, 'ORDER'))
+        participants: members.map((m) => ({
+          ...lcuParticipant(m, 'ORDER'),
+          self: Boolean((me.puuid && m.puuid === me.puuid) || (me.summonerId && m.summonerId === me.summonerId))
+        }))
       };
     }
   } catch {
@@ -102,7 +109,11 @@ async function detectPregame() {
 async function detectLiveGame(riotIdOverride) {
   const cfg = getConfig();
   try {
-    const [players, stats] = await Promise.all([liveGet('playerlist'), liveGet('gamestats')]);
+    const [players, stats, activeName] = await Promise.all([
+      liveGet('playerlist'),
+      liveGet('gamestats'),
+      liveGet('activeplayername').catch(() => null)
+    ]);
     return {
       source: 'local-client',
       gameMode: stats.gameMode,
@@ -113,7 +124,8 @@ async function detectLiveGame(riotIdOverride) {
         team: p.team, // ORDER / CHAOS
         position: p.position || '',
         level: p.level,
-        scores: p.scores
+        scores: p.scores,
+        self: Boolean(activeName && p.riotId === activeName)
       }))
     };
   } catch {
@@ -150,7 +162,8 @@ async function detectLiveGame(riotIdOverride) {
       puuid: p.puuid,
       championId: p.championId,
       team: p.teamId === 100 ? 'ORDER' : 'CHAOS',
-      spells: [p.spell1Id, p.spell2Id]
+      spells: [p.spell1Id, p.spell2Id],
+      self: p.puuid === account.puuid
     }))
   };
 }

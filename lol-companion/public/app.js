@@ -29,7 +29,7 @@ const DD = {
         await fetch(`https://ddragon.leagueoflegends.com/cdn/${this.version}/data/en_US/champion.json`)
       ).json();
       for (const c of Object.values(champs.data)) {
-        const entry = { id: c.id, name: c.name };
+        const entry = { id: c.id, name: c.name, key: c.key };
         this.champByKey.set(c.key, entry);
         this.champByNorm.set(c.name.toLowerCase().replace(/[^a-z0-9]/g, ''), entry);
         this.champByNorm.set(c.id.toLowerCase(), entry);
@@ -206,31 +206,130 @@ function fillPlatformSelects(platforms) {
 /* -------------------------------------------------------------- live view */
 let liveQueueHint = 'ranked_solo';
 
+// Live-client / champ-select position names → meta role names.
+const ROLE_MAP = {
+  TOP: 'TOP', JUNGLE: 'JUNGLE', MIDDLE: 'MID', MID: 'MID',
+  BOTTOM: 'ADC', ADC: 'ADC', UTILITY: 'SUPPORT', SUPPORT: 'SUPPORT'
+};
+
 function playerCardSkeleton(p) {
   const card = el('div', 'player-card');
+  if (p.self) card.classList.add('self');
+  const head = el('div', 'player-card-head');
   const champ = p.championId ?? p.championName ?? null;
   const portrait = portraitEl(champ);
   if (champ != null && DD.champ(champ)) {
     portrait.classList.add('clickable');
     portrait.title = `${DD.champName(champ)} — click for build & matchups`;
-    portrait.addEventListener('click', () => openBuildFor(champ, liveQueueHint));
+    portrait.addEventListener('click', () => toggleInlineBuild(card, champ, p));
   }
-  card.appendChild(portrait);
+  head.appendChild(portrait);
   const main = el('div', 'player-main');
-  main.appendChild(el('div', 'player-name', p.riotId || 'Hidden name'));
+  const nameRow = el('div', 'player-name', p.riotId || 'Hidden name');
+  if (p.self) nameRow.appendChild(el('span', 'you-chip', 'YOU'));
+  main.appendChild(nameRow);
   const sub = champ != null && DD.champ(champ)
     ? DD.champName(champ)
     : (p.position ? p.position.charAt(0) + p.position.slice(1).toLowerCase() : 'No pick yet');
   main.appendChild(el('div', 'player-sub', sub));
   main.appendChild(el('div', 'loading-inline', 'Scouting…'));
-  card.appendChild(main);
+  head.appendChild(main);
+  card.appendChild(head);
+  card.appendChild(el('div', 'inline-build hidden'));
   return card;
+}
+
+/* ---- inline build panel under a live player card ---- */
+function miniIcons(entries) {
+  const row = el('div', 'mini-icons');
+  for (const { src, title } of entries) {
+    if (!src) continue;
+    const img = el('img');
+    img.src = src;
+    img.title = title || '';
+    img.alt = title || '';
+    img.loading = 'lazy';
+    row.appendChild(img);
+  }
+  return row;
+}
+
+function renderInlineBuild(panel, build, matchups, champ) {
+  panel.innerHTML = '';
+  const line = (label, node) => {
+    const row = el('div', 'ib-row');
+    row.appendChild(el('span', 'ib-label', label));
+    row.appendChild(node);
+    panel.appendChild(row);
+  };
+  if (build.runes?.perks?.length) {
+    line('Runes', miniIcons(build.runes.perks.map((id) => ({ src: DD.perkIcon(id), title: DD.perkInfo(id)?.name }))));
+  }
+  if (build.spells?.length || build.skills?.priority) {
+    const row = el('div', 'ib-inline');
+    if (build.spells?.length) {
+      row.appendChild(miniIcons(build.spells.map((k) => ({ src: DD.spellIcon(k), title: DD.spellInfo(k)?.name }))));
+    }
+    if (build.skills?.priority) row.appendChild(el('span', 'ib-skill', build.skills.priority));
+    line('Spells', row);
+  }
+  const items = [...(build.startItems || []), ...(build.coreItems || [])];
+  if (items.length) {
+    line('Items', miniIcons(items.map((id) => ({ src: DD.itemIcon(id), title: DD.itemName(id) }))));
+  }
+  const rows = matchups?.matchups || [];
+  if (rows.length >= 2) {
+    const chips = el('div', 'ib-inline');
+    for (const m of rows.slice(0, 3)) {
+      const chip = el('span', 'tag bad', `${DD.champName(m.championId)} ${m.winrate}%`);
+      chips.appendChild(chip);
+    }
+    line('Beware', chips);
+  }
+  const foot = el('div', 'ib-foot');
+  const bits = [];
+  if (build.stats?.winrate != null) bits.push(`${build.stats.winrate}% WR`);
+  if (build.stats?.matches) bits.push(`${build.stats.matches.toLocaleString()} games`);
+  bits.push(`patch ${build.patch.replace('_', '.')}`);
+  foot.appendChild(el('span', 'icon-sub', bits.join(' · ')));
+  const more = el('button', 'link-btn', 'Full build →');
+  more.addEventListener('click', () => openBuildFor(champ, liveQueueHint));
+  foot.appendChild(more);
+  panel.appendChild(foot);
+}
+
+async function toggleInlineBuild(card, champ, p) {
+  const panel = card.querySelector('.inline-build');
+  if (!panel.classList.contains('hidden')) {
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  if (panel.dataset.loaded) return;
+  panel.textContent = 'Loading current build…';
+  try {
+    await DD.loadStatics();
+    const key = DD.champ(champ)?.key;
+    const role = ROLE_MAP[(p.position || '').toUpperCase()] || '';
+    const skipRole = liveQueueHint === 'aram' || liveQueueHint === 'arena';
+    const params = `championId=${key}&queue=${liveQueueHint}${role && !skipRole ? `&role=${role}` : ''}`;
+    const [build, matchups] = await Promise.all([
+      api(`/api/meta/build?${params}`),
+      api(`/api/meta/matchups?${params}`).catch(() => null)
+    ]);
+    renderInlineBuild(panel, build, matchups, champ);
+    panel.dataset.loaded = '1';
+  } catch (err) {
+    panel.textContent = err.message;
+  }
 }
 
 function fillPlayerCard(card, dossier) {
   const main = card.querySelector('.player-main');
   main.innerHTML = '';
-  main.appendChild(el('div', 'player-name', dossier.riotId));
+  const nameRow = el('div', 'player-name', dossier.riotId);
+  if (card.classList.contains('self')) nameRow.appendChild(el('span', 'you-chip', 'YOU'));
+  main.appendChild(nameRow);
   main.appendChild(el('div', 'player-sub', card.dataset.champLabel || ''));
 
   const rankLine = el('div', 'rank-line');
@@ -306,6 +405,12 @@ async function scoutGame() {
       cards.push({ p, card });
     }
 
+    // Your build, right under your card — no tab hopping mid-game.
+    const selfCard = cards.find(({ p }) => p.self && (p.championId ?? p.championName) != null && DD.champ(p.championId ?? p.championName));
+    if (selfCard) {
+      toggleInlineBuild(selfCard.card, selfCard.p.championId ?? selfCard.p.championName, selfCard.p);
+    }
+
     // Scout sequentially — keeps us politely inside Riot rate limits.
     let failures = 0;
     for (const { p, card } of cards) {
@@ -317,11 +422,8 @@ async function scoutGame() {
         const params = new URLSearchParams();
         if (p.puuid) params.set('puuid', p.puuid);
         else params.set('riotId', p.riotId);
-        const champ = DD.champ(p.championId ?? p.championName);
-        if (champ) {
-          const key = [...DD.champByKey.entries()].find(([, v]) => v === champ)?.[0];
-          if (key) params.set('championId', key);
-        }
+        const champKey = DD.champ(p.championId ?? p.championName)?.key;
+        if (champKey) params.set('championId', champKey);
         const dossier = await api(`/api/scout/player?${params}`);
         fillPlayerCard(card, dossier);
       } catch (err) {
@@ -699,7 +801,7 @@ async function loadBuild() {
     status.textContent = 'Pick a champion first.';
     return;
   }
-  const key = [...DD.champByKey.entries()].find(([, v]) => v === champ)?.[0];
+  const key = champ.key;
   const queue = $('#buildQueue').value;
   const role = queue === 'aram' || queue === 'arena' ? '' : $('#buildRole').value;
   status.classList.remove('hidden', 'error');
