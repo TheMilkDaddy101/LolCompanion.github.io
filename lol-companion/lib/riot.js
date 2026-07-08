@@ -126,6 +126,11 @@ const TTL = {
   spectator: 30_000
 };
 
+// Cheapest possible authenticated call — verifies the saved key works.
+export function checkKey(platform) {
+  return riotFetch(`${platform}.api.riotgames.com`, '/lol/status/v4/platform-data');
+}
+
 export function accountByRiotId(riotId, platform) {
   const [name, tag] = riotId.split('#');
   if (!name || !tag) {

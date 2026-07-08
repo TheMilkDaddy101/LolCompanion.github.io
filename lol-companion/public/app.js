@@ -182,6 +182,7 @@ async function refreshStatus() {
     $('#dotClient').className = `dot ${health.clientDetected ? 'on' : 'off'}`;
     $('#dotGame').className = `dot ${health.inGame ? 'on' : 'off'}`;
     $('#dotKey').className = `dot ${health.hasApiKey ? 'on' : 'off'}`;
+    if (health.version) $('#verLabel').textContent = `LoL Companion · ${health.version}`;
     fillPlatformSelects(health.platforms || []);
   } catch {
     // server unreachable; leave dots as-is
@@ -867,10 +868,24 @@ $('#saveCfg').addEventListener('click', async () => {
   }
   if (res && res.ok) {
     $('#cfgKey').value = '';
-    $('#cfgSaved').classList.remove('hidden');
-    setTimeout(() => $('#cfgSaved').classList.add('hidden'), 2500);
+    const saved = $('#cfgSaved');
+    saved.textContent = 'Saved ✓';
+    saved.classList.remove('hidden');
     await refreshStatus();
     await loadSettings();
+    // Prove the key actually works against Riot, right now.
+    if (appConfig.hasApiKey) {
+      saved.textContent = 'Saved ✓ — testing key…';
+      try {
+        await api('/api/keycheck');
+        saved.textContent = 'Saved ✓ — key verified, you’re ready!';
+      } catch (e) {
+        saved.classList.add('hidden');
+        errBox.textContent = `Settings saved, but the key failed Riot’s check: ${e.message}`;
+        errBox.classList.remove('hidden');
+      }
+    }
+    setTimeout(() => saved.classList.add('hidden'), 6000);
   } else {
     errBox.textContent = data.error || `Save failed (${res ? res.status : 'no response'})`;
     errBox.classList.remove('hidden');

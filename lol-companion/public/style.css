@@ -143,6 +143,7 @@ body::before {
   color: var(--text-dim);
 }
 .status-row { display: flex; align-items: center; gap: 9px; padding: 2px 8px; }
+.version-label { padding: 8px 8px 0; font-size: 10.5px; color: #5a6b7e; letter-spacing: 0.4px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #3d4854; flex-shrink: 0; transition: background 0.3s; }
 .dot.on { background: var(--teal); animation: pulse 2.6s ease-in-out infinite; }
 .dot.off { background: #3d4854; }

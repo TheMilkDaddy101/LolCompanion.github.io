@@ -7,7 +7,7 @@ import { exec } from 'node:child_process';
 import { getConfig, saveConfig, publicConfig } from './lib/config.js';
 import { lcuGet, lcuAvailable } from './lib/lcu.js';
 import { liveGet, liveAvailable } from './lib/live.js';
-import { accountByRiotId, activeGameByPuuid, PLATFORMS } from './lib/riot.js';
+import { accountByRiotId, activeGameByPuuid, checkKey, PLATFORMS } from './lib/riot.js';
 import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.js';
 import { buildFor, matchupsFor, rawStats, QUEUES, lastAttempts, currentPatch } from './lib/meta.js';
 import { appDir } from './lib/paths.js';
@@ -171,7 +171,25 @@ async function detectLiveGame(riotIdOverride) {
 const routes = {
   'GET /api/health': async () => {
     const [client, inGame] = await Promise.all([lcuAvailable(), liveAvailable()]);
-    return { clientDetected: client, inGame, ...publicConfig(), platforms: PLATFORMS };
+    return {
+      clientDetected: client,
+      inGame,
+      version: globalThis.__APP_VERSION__ || 'source',
+      ...publicConfig(),
+      platforms: PLATFORMS
+    };
+  },
+
+  // Verify the saved key actually works against Riot right now.
+  'GET /api/keycheck': async () => {
+    const cfg = getConfig();
+    if (!cfg.riotApiKey) {
+      const err = new Error('No API key saved yet.');
+      err.status = 428;
+      throw err;
+    }
+    await checkKey(cfg.platform);
+    return { ok: true, platform: cfg.platform };
   },
 
   'GET /api/config': async () => publicConfig(),

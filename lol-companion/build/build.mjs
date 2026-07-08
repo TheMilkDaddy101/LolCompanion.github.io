@@ -35,10 +35,12 @@ const embedded = {};
 for (const file of fs.readdirSync(path.join(ROOT, 'public'))) {
   embedded[file] = fs.readFileSync(path.join(ROOT, 'public', file), 'utf8');
 }
+const version = process.env.GITHUB_RUN_NUMBER ? `build ${process.env.GITHUB_RUN_NUMBER}` : 'local build';
 fs.writeFileSync(
   path.join(GEN, 'embed.mjs'),
   `import path from 'node:path';
 globalThis.__APP_DIR__ = path.dirname(process.execPath);
+globalThis.__APP_VERSION__ = ${JSON.stringify(version)};
 globalThis.__EMBEDDED_PUBLIC__ = ${JSON.stringify(embedded)};
 `
 );
