@@ -910,6 +910,35 @@ async function showLogs() {
 }
 $('#logsBtn').addEventListener('click', showLogs);
 
+async function testPorofessor() {
+  const out = $('#logsOut');
+  out.classList.remove('hidden');
+  out.textContent = 'Contacting Porofessor from this machine (up to ~15s)…';
+  try {
+    const d = await api('/api/porofessor/probe');
+    const line = (label, s) => {
+      if (!s) return `${label}: (no result)`;
+      const verdict = s.looksLikePlayerData ? '✅ player data!'
+        : s.looksLikeCloudflare ? '🚧 Cloudflare wall'
+        : `status ${s.status}`;
+      return `${label}: ${verdict} (${s.status}, ${s.length || 0} bytes)\n  ${s.url}`;
+    };
+    out.textContent = [
+      `Porofessor test for ${d.riotId} (${d.platform}):`,
+      line('Live page', d.page),
+      line('Live partial', d.partial),
+      '',
+      (d.page?.looksLikePlayerData || d.partial?.looksLikePlayerData)
+        ? '→ Reachable! Send me this screenshot and I will build the parser.'
+        : '→ Not usable from here (blocked). Send me this screenshot anyway.'
+    ].join('\n');
+  } catch (e) {
+    out.textContent = 'Porofessor test failed: ' + e.message +
+      '\n(If this says "Failed to fetch", the app server itself is down — open error.log directly.)';
+  }
+}
+$('#poroBtn').addEventListener('click', testPorofessor);
+
 $('#buildBtn').addEventListener('click', loadBuild);
 $('#buildChamp').addEventListener('keydown', (e) => e.key === 'Enter' && loadBuild());
 $('#buildQueue').addEventListener('change', () => {

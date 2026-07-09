@@ -12,6 +12,7 @@ import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.
 import { buildFor, matchupsFor, rawStats, diagnose, QUEUES, lastAttempts, currentPatch } from './lib/meta.js';
 import { appDir } from './lib/paths.js';
 import { logError, recentErrors } from './lib/log.js';
+import { probe as porofessorProbe } from './lib/porofessor.js';
 
 // Never let a stray error or rejected promise take the whole app down —
 // a single failed u.gg/Riot request must not kill scouting for everyone.
@@ -244,6 +245,14 @@ const routes = {
   // Recent errors (also written to error.log next to the config) — the
   // Settings "Show error log" button reads this so problems are visible.
   'GET /api/logs': async () => recentErrors(),
+
+  // Experimental: can we reach Porofessor's live page from this machine?
+  'GET /api/porofessor/probe': async (req, url) => {
+    const cfg = getConfig();
+    const riotId = url.searchParams.get('riotId') || cfg.riotId;
+    if (!riotId) throw Object.assign(new Error('Set your Riot ID in Settings, or pass ?riotId='), { status: 400 });
+    return porofessorProbe(url.searchParams.get('platform') || cfg.platform, riotId);
+  },
 
   'GET /api/live/allgamedata': async () => liveGet('allgamedata'),
 
