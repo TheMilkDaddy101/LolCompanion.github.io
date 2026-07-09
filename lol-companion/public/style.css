@@ -334,6 +334,22 @@ p.muted { margin-bottom: 18px; max-width: 760px; font-size: 13px; }
   box-shadow: 0 0 8px rgba(200, 170, 110, 0.35);
 }
 
+.reveal-chip {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--teal-soft);
+  color: var(--teal);
+  background: rgba(10, 200, 185, 0.08);
+  vertical-align: 2px;
+  cursor: help;
+}
+
 .champ-portrait {
   width: 50px; height: 50px;
   border-radius: 13px;

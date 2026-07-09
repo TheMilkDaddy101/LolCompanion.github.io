@@ -228,6 +228,11 @@ function playerCardSkeleton(p) {
   const main = el('div', 'player-main');
   const nameRow = el('div', 'player-name', p.riotId || 'Hidden name');
   if (p.self) nameRow.appendChild(el('span', 'you-chip', 'YOU'));
+  else if (p.revealed) {
+    const r = el('span', 'reveal-chip', 'revealed');
+    r.title = 'Name hidden by Riot in champ select — revealed via team chat';
+    nameRow.appendChild(r);
+  }
   main.appendChild(nameRow);
   const sub = champ != null && DD.champ(champ)
     ? DD.champName(champ)

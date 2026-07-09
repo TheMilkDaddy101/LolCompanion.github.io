@@ -78,8 +78,10 @@ Browser UI (public/)  ──►  local Node server (server.js)
   not fatal), caches each champion+queue for 12 hours to stay polite, and exposes the raw upstream
   JSON at `/api/meta/raw?championId=&queue=` for debugging if u.gg changes their format. Stats and
   build data are © their aggregators; this is for personal use.
-- In ranked champ select, Riot hides enemy names until loading screen — scouting the enemy team
-  starts working once the game loads.
+- In ranked solo/duo champ select, Riot hides your **allies'** names in the UI, but the app
+  reveals them from the team chat room (the same public technique Porofessor/Blitz use) and scouts
+  them automatically — revealed players are tagged as such. **Enemy** names stay hidden until the
+  loading screen, at which point the enemy team becomes scoutable too.
 - This folder is a **local app**, not part of the GitHub Pages site (browsers can't talk to the
   League client from a hosted page). Clone the repo and run it locally.
 

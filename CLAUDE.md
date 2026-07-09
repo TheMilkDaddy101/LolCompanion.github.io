@@ -21,8 +21,14 @@ Read `lol-companion/README.md` for the full feature list and architecture.
   each dossier analyzes the player's ranked games from the last 30 days, capped
   at 25 (`WINDOW_DAYS`/`SCOUT_WINDOW` in `lib/aggregate.js`) into `champStats` (per-champ WR/games/KDA) and `onChamp`
   (their record on the champion they're currently playing), u.gg-style.
+- Champ-select ally reveal: solo/duo hides ally names in the champ-select UI,
+  so `champSelectChatMembers()` in `lib/lcu.js` reads `/chat/v5/participants`
+  (team chat room, cid contains "champ-select") to recover real Riot
+  IDs+puuids, merged into the scout by puuid in `detectPregame()`. Debug via
+  `GET /api/lcu/reveal`.
 - Debug endpoints: `GET /api/meta/diagnose` (u.gg URL attempts),
-  `GET /api/keycheck` (validates saved key against Riot).
+  `GET /api/keycheck` (validates saved key against Riot),
+  `GET /api/lcu/reveal` (champ-select chat members).
 - The Riot API dev key expires every 24h — regenerate at
   developer.riotgames.com when testing. A Personal API key doesn't expire.
 

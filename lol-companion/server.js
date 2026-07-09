@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { exec } from 'node:child_process';
 import { getConfig, saveConfig, publicConfig } from './lib/config.js';
-import { lcuGet, lcuAvailable } from './lib/lcu.js';
+import { lcuGet, lcuAvailable, champSelectChatMembers } from './lib/lcu.js';
 import { liveGet, liveAvailable } from './lib/live.js';
 import { accountByRiotId, activeGameByPuuid, checkKey, PLATFORMS } from './lib/riot.js';
 import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.js';
@@ -69,16 +69,27 @@ async function detectPregame() {
     const mine = (session.myTeam || []).filter((m) => m.puuid || m.gameName || m.summonerName);
     const theirs = (session.theirTeam || []).filter((m) => m.puuid || m.gameName);
     if (mine.length) {
-      return {
-        source: 'champselect',
-        participants: [
-          ...mine.map((m) => ({
-            ...lcuParticipant(m, 'ORDER'),
-            self: m.cellId != null && m.cellId === session.localPlayerCellId
-          })),
-          ...theirs.map((m) => lcuParticipant(m, 'CHAOS'))
-        ]
+      // In ranked solo/duo the champ-select UI hides ally names; the team
+      // chat room still exposes them, so reveal + attach real Riot IDs.
+      let revealedById = new Map();
+      const anyHidden = mine.some((m) => !(m.gameName && m.tagLine) && !m.summonerName);
+      if (anyHidden) {
+        const members = await champSelectChatMembers();
+        revealedById = new Map(members.filter((r) => r.puuid).map((r) => [r.puuid, r]));
+      }
+      const mapMine = (m) => {
+        const p = lcuParticipant(m, 'ORDER');
+        const rev = m.puuid && revealedById.get(m.puuid);
+        if (rev) {
+          if (!p.riotId) p.riotId = rev.riotId;
+          if (!p.puuid) p.puuid = rev.puuid;
+          p.revealed = true;
+        }
+        p.self = m.cellId != null && m.cellId === session.localPlayerCellId;
+        return p;
       };
+      const participants = [...mine.map(mapMine), ...theirs.map((m) => lcuParticipant(m, 'CHAOS'))];
+      return { source: 'champselect', revealedCount: [...revealedById.keys()].length, participants };
     }
   } catch {
     // not in champ select
@@ -203,6 +214,7 @@ const routes = {
   'GET /api/lcu/summoner': async () => lcuGet('/lol-summoner/v1/current-summoner'),
   'GET /api/lcu/champselect': async () => lcuGet('/lol-champ-select/v1/session'),
   'GET /api/lcu/gameflow': async () => lcuGet('/lol-gameflow/v1/gameflow-phase'),
+  'GET /api/lcu/reveal': async () => champSelectChatMembers(),
 
   'GET /api/live/allgamedata': async () => liveGet('allgamedata'),
 

@@ -99,3 +99,25 @@ export async function lcuAvailable() {
     return false;
   }
 }
+
+// Reveal hidden solo/duo teammate identities in champ select.
+// Riot hides ally names in the champ-select UI for ranked, but the team
+// chat room still lists every member with their real Riot ID and puuid.
+// (Same public technique used by Porofessor / Blitz / the `reveal` tool.)
+export async function champSelectChatMembers() {
+  let raw;
+  try {
+    raw = await lcuGet('/chat/v5/participants');
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(raw) ? raw : raw?.participants || [];
+  return list
+    .filter((p) => typeof p.cid === 'string' && p.cid.includes('champ-select'))
+    .map((p) => ({
+      puuid: p.puuid || null,
+      riotId: p.game_name && p.game_tag ? `${p.game_name}#${p.game_tag}` : p.name || null,
+      summonerId: p.summoner_id || p.summonerId || null
+    }))
+    .filter((p) => p.puuid || p.riotId);
+}
