@@ -12,6 +12,11 @@ import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.
 import { buildFor, matchupsFor, rawStats, QUEUES, lastAttempts, currentPatch } from './lib/meta.js';
 import { appDir } from './lib/paths.js';
 
+// Never let a stray error or rejected promise take the whole app down —
+// a single failed u.gg/Riot request must not kill scouting for everyone.
+process.on('uncaughtException', (err) => console.error('[uncaught]', err?.message || err));
+process.on('unhandledRejection', (err) => console.error('[unhandled]', err?.message || err));
+
 const PUBLIC_DIR = path.join(appDir(), 'public');
 // Set by the single-executable build — maps filename -> file contents.
 const EMBEDDED_PUBLIC = globalThis.__EMBEDDED_PUBLIC__ || null;
@@ -66,30 +71,49 @@ function lcuParticipant(m, team) {
 async function detectPregame() {
   try {
     const session = await lcuGet('/lol-champ-select/v1/session');
-    const mine = (session.myTeam || []).filter((m) => m.puuid || m.gameName || m.summonerName);
-    const theirs = (session.theirTeam || []).filter((m) => m.puuid || m.gameName);
-    if (mine.length) {
-      // In ranked solo/duo the champ-select UI hides ally names; the team
-      // chat room still exposes them, so reveal + attach real Riot IDs.
-      let revealedById = new Map();
-      const anyHidden = mine.some((m) => !(m.gameName && m.tagLine) && !m.summonerName);
-      if (anyHidden) {
-        const members = await champSelectChatMembers();
-        revealedById = new Map(members.filter((r) => r.puuid).map((r) => [r.puuid, r]));
+    const myTeamRaw = session.myTeam || [];
+    if (myTeamRaw.length) {
+      // In ranked solo/duo the champ-select UI hides ally names AND puuids on
+      // the session cells, so we can't rely on those. The team chat room
+      // still lists every member with a real Riot ID + puuid — use that as
+      // the roster and pull champion/position from session cells by puuid.
+      let members = [];
+      try { members = await champSelectChatMembers(); } catch { /* reveal unavailable */ }
+
+      const cellByPuuid = new Map();
+      for (const m of myTeamRaw) if (m.puuid) cellByPuuid.set(m.puuid, m);
+
+      let myPuuid = null;
+      try { myPuuid = (await lcuGet('/lol-summoner/v1/current-summoner')).puuid; } catch { /* ignore */ }
+
+      const namedCells = myTeamRaw.filter((m) => (m.gameName && m.tagLine) || m.summonerName);
+      let mine;
+      if (members.some((r) => r.puuid) && members.length >= namedCells.length) {
+        // Build from revealed chat members (complete, real identities).
+        mine = members.map((mem) => {
+          const cell = mem.puuid ? cellByPuuid.get(mem.puuid) : null;
+          const self = myPuuid ? mem.puuid === myPuuid : false;
+          return {
+            riotId: mem.riotId,
+            puuid: mem.puuid,
+            championId: cell?.championId || null,
+            position: (cell?.assignedPosition || '').toUpperCase(),
+            team: 'ORDER',
+            revealed: !self,
+            self
+          };
+        });
+      } else {
+        // Names aren't hidden (e.g. normal draft) — use session cells directly.
+        mine = namedCells.map((m) => ({
+          ...lcuParticipant(m, 'ORDER'),
+          self: m.cellId != null && m.cellId === session.localPlayerCellId
+        }));
       }
-      const mapMine = (m) => {
-        const p = lcuParticipant(m, 'ORDER');
-        const rev = m.puuid && revealedById.get(m.puuid);
-        if (rev) {
-          if (!p.riotId) p.riotId = rev.riotId;
-          if (!p.puuid) p.puuid = rev.puuid;
-          p.revealed = true;
-        }
-        p.self = m.cellId != null && m.cellId === session.localPlayerCellId;
-        return p;
-      };
-      const participants = [...mine.map(mapMine), ...theirs.map((m) => lcuParticipant(m, 'CHAOS'))];
-      return { source: 'champselect', revealedCount: [...revealedById.keys()].length, participants };
+      const theirs = (session.theirTeam || [])
+        .filter((m) => m.puuid || m.gameName)
+        .map((m) => lcuParticipant(m, 'CHAOS'));
+      return { source: 'champselect', revealedCount: members.length, participants: [...mine, ...theirs] };
     }
   } catch {
     // not in champ select

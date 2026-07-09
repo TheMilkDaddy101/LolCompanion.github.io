@@ -30,7 +30,14 @@ let patchCache = { value: null, at: 0 };
 
 export async function currentPatch() {
   if (patchCache.value && Date.now() - patchCache.at < 3600_000) return patchCache.value;
-  const res = await fetch('https://ddragon.leagueoflegends.com/api/versions.json');
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 6000);
+  let res;
+  try {
+    res = await fetch('https://ddragon.leagueoflegends.com/api/versions.json', { signal: ctl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error('Could not fetch current patch from Data Dragon');
   const [latest] = await res.json();
   const [major, minor] = latest.split('.');
@@ -53,15 +60,27 @@ function patchCandidates(ddPatch) {
 }
 
 async function fetchJson(url) {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': UA, Accept: 'application/json', Referer: 'https://u.gg/' }
-  });
-  if (!res.ok) {
-    const err = new Error(`HTTP ${res.status}`);
-    err.status = res.status;
+  // Cap each attempt so a hanging CDN can't stall the whole request (we try
+  // several URL variants, and without this a stuck socket freezes scouting).
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 6000);
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': UA, Accept: 'application/json', Referer: 'https://u.gg/' },
+      signal: ctl.signal
+    });
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('timeout');
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 // Remember the URL shape that worked so later champions go straight there.
