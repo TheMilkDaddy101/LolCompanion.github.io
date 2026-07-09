@@ -290,3 +290,49 @@ export async function matchupsFor(championId, queueKey, requestedRole) {
 export async function rawStats(kind, championId, queueKey) {
   return fetchStats(kind === 'matchups' ? 'matchups' : 'overview', championId, queueKey);
 }
+
+// Fast, parallel probe of every candidate URL for one champion — used by the
+// Builds-tab "Diagnose" button so we can see exactly what u.gg returns
+// (200 = works, 403 = blocked, 404 = wrong URL, timeout = network) without
+// waiting on the sequential retry loop.
+export async function diagnose(championId = 117, queueKey = 'ranked_solo') {
+  let patch, patchError = null;
+  try {
+    patch = await currentPatch();
+  } catch (e) {
+    patchError = e.message;
+  }
+  const queues = QUEUES[queueKey] || ['ranked_solo_5x5'];
+  const urls = [];
+  const patches = patch ? patchCandidates(patch) : ['(patch lookup failed)'];
+  for (const p of patch ? [patch, patchCandidates(patch)[1]] : []) {
+    for (const queue of queues.slice(0, 1)) {
+      for (const shape of shapeList()) {
+        urls.push(`https://stats2.u.gg/lol/${shape.prefix}/overview/${p}/${queue}/${championId}/${shape.ver}.json`);
+      }
+    }
+  }
+  const probe = async (url) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 4000);
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json', Referer: 'https://u.gg/' }, signal: ctl.signal });
+      return { url, status: res.status, ok: res.ok };
+    } catch (e) {
+      return { url, status: e.name === 'AbortError' ? 'timeout' : (e.message || 'error') };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const results = await Promise.all(urls.map(probe));
+  const working = results.find((r) => r.ok);
+  return {
+    ddragonPatch: patch || null,
+    patchError,
+    patchCandidatesTried: patches,
+    championId,
+    queue: queueKey,
+    working: working ? working.url : null,
+    results
+  };
+}

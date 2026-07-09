@@ -867,6 +867,27 @@ async function loadBuild() {
   }
 }
 
+async function runDiagnose() {
+  const out = $('#diagOut');
+  out.classList.remove('hidden');
+  out.textContent = 'Probing u.gg servers…';
+  const champ = DD.champ($('#buildChamp').value);
+  const key = champ?.key || 117;
+  const queue = $('#buildQueue').value;
+  try {
+    const d = await api(`/api/meta/probe?championId=${key}&queue=${queue}`);
+    const lines = [];
+    lines.push(`Patch from Riot: ${d.ddragonPatch || 'FAILED — ' + (d.patchError || 'unknown')}`);
+    lines.push(`Champion ${d.championId}, queue ${d.queue}`);
+    lines.push(d.working ? `✅ WORKING URL: ${d.working}` : '❌ No URL returned data. Results:');
+    for (const r of d.results) lines.push(`  [${r.status}] ${r.url}`);
+    out.textContent = lines.join('\n');
+  } catch (e) {
+    out.textContent = 'Diagnose failed: ' + e.message;
+  }
+}
+$('#diagBtn').addEventListener('click', runDiagnose);
+
 $('#buildBtn').addEventListener('click', loadBuild);
 $('#buildChamp').addEventListener('keydown', (e) => e.key === 'Enter' && loadBuild());
 $('#buildQueue').addEventListener('change', () => {

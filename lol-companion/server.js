@@ -9,7 +9,7 @@ import { lcuGet, lcuAvailable, champSelectChatMembers } from './lib/lcu.js';
 import { liveGet, liveAvailable } from './lib/live.js';
 import { accountByRiotId, activeGameByPuuid, checkKey, PLATFORMS } from './lib/riot.js';
 import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.js';
-import { buildFor, matchupsFor, rawStats, QUEUES, lastAttempts, currentPatch } from './lib/meta.js';
+import { buildFor, matchupsFor, rawStats, diagnose, QUEUES, lastAttempts, currentPatch } from './lib/meta.js';
 import { appDir } from './lib/paths.js';
 
 // Never let a stray error or rejected promise take the whole app down —
@@ -299,6 +299,10 @@ const routes = {
     ),
 
   'GET /api/meta/queues': async () => Object.keys(QUEUES),
+
+  // Fast parallel probe for the Builds-tab Diagnose button.
+  'GET /api/meta/probe': async (req, url) =>
+    diagnose(Number(url.searchParams.get('championId')) || 117, url.searchParams.get('queue') || 'ranked_solo'),
 
   // Every URL the meta fetcher tried on its most recent failure, plus a
   // fresh attempt — paste this output when reporting "builds won't load".
