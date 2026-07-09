@@ -162,14 +162,17 @@ export async function playerDossier({ riotId, puuid, platform, championId = null
     err.status = 400;
     throw err;
   }
-  // 15 recent ranked games power everything below: form dots, per-champion
-  // winrates, and the headline stat on their current pick. Finished matches
-  // cache to disk forever, so repeat scouts cost almost nothing.
-  const SCOUT_WINDOW = 15;
+  // The last 30 days of ranked games (capped at the 25 most recent) power
+  // everything below: form dots, per-champion winrates + KDA, and the
+  // headline stat on their current pick. Finished matches cache to disk
+  // forever, so repeat scouts cost almost nothing.
+  const WINDOW_DAYS = 30;
+  const SCOUT_WINDOW = 25;
+  const startTime = Math.floor(Date.now() / 1000) - WINDOW_DAYS * 24 * 3600;
   const [entries, masteries, recent] = await Promise.all([
     leagueEntriesByPuuid(puuid, platform).catch(() => []),
     topMasteries(puuid, platform, 3).catch(() => []),
-    recentSummaries(puuid, platform, SCOUT_WINDOW, { type: 'ranked' }).catch(() => [])
+    recentSummaries(puuid, platform, SCOUT_WINDOW, { type: 'ranked', startTime }).catch(() => [])
   ]);
   const solo = entries.find((e) => e.queueType === 'RANKED_SOLO_5x5') || null;
   const flex = entries.find((e) => e.queueType === 'RANKED_FLEX_SR') || null;
@@ -195,6 +198,7 @@ export async function playerDossier({ riotId, puuid, platform, championId = null
     },
     masteries: masteryList,
     window: recent.filter((m) => !m.remake).length,
+    windowDays: WINDOW_DAYS,
     champStats: champStats.slice(0, 5),
     onChamp,
     recent: recent.slice(0, 5).map((m) => ({

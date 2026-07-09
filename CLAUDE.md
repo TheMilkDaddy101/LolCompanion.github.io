@@ -18,8 +18,8 @@ Read `lol-companion/README.md` for the full feature list and architecture.
 - User confirmed the app works end-to-end on their PC (config save, key check,
   u.gg meta fetch all functioning as of build 9).
 - Build 10 replaced mastery-based "Mains" on scout cards with real play data:
-  each dossier analyzes the player's last 15 ranked games (`SCOUT_WINDOW` in
-  `lib/aggregate.js`) into `champStats` (per-champ WR/games/KDA) and `onChamp`
+  each dossier analyzes the player's ranked games from the last 30 days, capped
+  at 25 (`WINDOW_DAYS`/`SCOUT_WINDOW` in `lib/aggregate.js`) into `champStats` (per-champ WR/games/KDA) and `onChamp`
   (their record on the champion they're currently playing), u.gg-style.
 - Debug endpoints: `GET /api/meta/diagnose` (u.gg URL attempts),
   `GET /api/keycheck` (validates saved key against Riot).

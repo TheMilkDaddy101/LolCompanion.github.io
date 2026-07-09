@@ -340,15 +340,16 @@ function fillPlayerCard(card, dossier) {
 
   // Headline: how they're doing on the champ they're playing RIGHT NOW,
   // from their recent ranked window (u.gg-style).
+  const daysLabel = `last ${dossier.windowDays || 30} days`;
   if (dossier.onChamp) {
     const oc = dossier.onChamp;
     const tone = oc.games >= 3 ? (oc.winrate >= 55 ? 'good' : oc.winrate <= 42 ? 'bad' : '') : '';
     const line = el('div', `onchamp ${tone}`);
     line.appendChild(el('b', '', `${oc.winrate}% WR`));
-    line.append(` · ${oc.games} game${oc.games === 1 ? '' : 's'} on ${DD.champName(oc.championId)} (last ${dossier.window} ranked)`);
+    line.append(` · ${oc.games} game${oc.games === 1 ? '' : 's'} · ${oc.avgKda} KDA on ${DD.champName(oc.championId)} (${daysLabel})`);
     main.appendChild(line);
   } else if (dossier.window >= 5 && (card.dataset.champLabel || '') && dossier.champStats?.length) {
-    main.appendChild(el('div', 'onchamp neutral', `0 games on ${card.dataset.champLabel} in their last ${dossier.window} ranked`));
+    main.appendChild(el('div', 'onchamp neutral', `0 ranked games on ${card.dataset.champLabel} in the ${daysLabel}`));
   }
 
   // What they actually play: recent-ranked champions with winrates.
@@ -359,10 +360,10 @@ function fillPlayerCard(card, dossier) {
     for (const c of dossier.champStats.slice(0, 4)) {
       const chip = el('span', `champ-chip ${c.games >= 3 ? (c.winrate >= 55 ? 'good' : c.winrate <= 42 ? 'bad' : '') : ''}`);
       const img = champImg(c.championId, '');
-      img.title = `${DD.champName(c.championId)} — ${c.wins}W ${c.games - c.wins}L · ${c.avgKda} KDA`;
+      img.title = `${DD.champName(c.championId)} — ${c.wins}W ${c.games - c.wins}L in the last ${dossier.windowDays || 30} days`;
       chip.appendChild(img);
       chip.appendChild(el('span', 'cc-wr', `${c.winrate}%`));
-      chip.appendChild(el('span', 'cc-g', `${c.games}g`));
+      chip.appendChild(el('span', 'cc-g', `${c.games}g · ${c.avgKda}`));
       chips.appendChild(chip);
     }
     line.appendChild(chips);

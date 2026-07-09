@@ -163,10 +163,11 @@ export function topMasteries(puuid, platform, count = 5) {
   );
 }
 
-export function matchIds(puuid, platform, { start = 0, count = 10, queue = null, type = null } = {}) {
+export function matchIds(puuid, platform, { start = 0, count = 10, queue = null, type = null, startTime = null } = {}) {
   const params = new URLSearchParams({ start: String(start), count: String(count) });
   if (queue) params.set('queue', String(queue));
   if (type) params.set('type', type);
+  if (startTime) params.set('startTime', String(startTime)); // epoch seconds
   const host = `${MATCH_REGION[platform] || 'americas'}.api.riotgames.com`;
   return cachedFetch(host, `/lol/match/v5/matches/by-puuid/${puuid}/ids?${params}`, TTL.matchlist);
 }
