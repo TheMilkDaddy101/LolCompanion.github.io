@@ -3,3 +3,4 @@ cache/
 node_modules/
 dist/
 build/.gen/
+error.log

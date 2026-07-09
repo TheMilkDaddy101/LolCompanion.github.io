@@ -1,6 +1,0 @@
-[2026-07-09T23:31:12.996Z] porofessor probe: no player data: page=403 partial=403
-Error: no player data: page=403 partial=403
-    at probe (file:///home/user/JamesLedford1.github.io/lol-companion/lib/porofessor.js:82:34)
-    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
-    at async Server.<anonymous> (file:///home/user/JamesLedford1.github.io/lol-companion/server.js:413:22)
-
