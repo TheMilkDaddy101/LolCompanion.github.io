@@ -888,6 +888,28 @@ async function runDiagnose() {
 }
 $('#diagBtn').addEventListener('click', runDiagnose);
 
+async function showLogs() {
+  const out = $('#logsOut');
+  out.classList.remove('hidden');
+  out.textContent = 'Loading…';
+  try {
+    const d = await api('/api/logs');
+    if (!d.errors || !d.errors.length) {
+      out.textContent = `No errors logged yet. ✅\nLog file: ${d.file}`;
+      return;
+    }
+    const lines = [`Log file: ${d.file}`, `${d.count} error(s) logged. Most recent first:`, ''];
+    for (const e of d.errors) {
+      lines.push(`[${e.at}] ${e.context}`);
+      lines.push(`   ${e.message}`);
+    }
+    out.textContent = lines.join('\n');
+  } catch (e) {
+    out.textContent = 'Could not load logs: ' + e.message;
+  }
+}
+$('#logsBtn').addEventListener('click', showLogs);
+
 $('#buildBtn').addEventListener('click', loadBuild);
 $('#buildChamp').addEventListener('keydown', (e) => e.key === 'Enter' && loadBuild());
 $('#buildQueue').addEventListener('change', () => {

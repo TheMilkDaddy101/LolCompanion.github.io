@@ -11,11 +11,12 @@ import { accountByRiotId, activeGameByPuuid, checkKey, PLATFORMS } from './lib/r
 import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.js';
 import { buildFor, matchupsFor, rawStats, diagnose, QUEUES, lastAttempts, currentPatch } from './lib/meta.js';
 import { appDir } from './lib/paths.js';
+import { logError, recentErrors } from './lib/log.js';
 
 // Never let a stray error or rejected promise take the whole app down —
 // a single failed u.gg/Riot request must not kill scouting for everyone.
-process.on('uncaughtException', (err) => console.error('[uncaught]', err?.message || err));
-process.on('unhandledRejection', (err) => console.error('[unhandled]', err?.message || err));
+process.on('uncaughtException', (err) => logError('uncaughtException', err));
+process.on('unhandledRejection', (err) => logError('unhandledRejection', err));
 
 const PUBLIC_DIR = path.join(appDir(), 'public');
 // Set by the single-executable build — maps filename -> file contents.
@@ -240,6 +241,10 @@ const routes = {
   'GET /api/lcu/gameflow': async () => lcuGet('/lol-gameflow/v1/gameflow-phase'),
   'GET /api/lcu/reveal': async () => champSelectChatMembers(),
 
+  // Recent errors (also written to error.log next to the config) — the
+  // Settings "Show error log" button reads this so problems are visible.
+  'GET /api/logs': async () => recentErrors(),
+
   'GET /api/live/allgamedata': async () => liveGet('allgamedata'),
 
   'GET /api/scout': async (req, url) => detectLiveGame(url.searchParams.get('riotId') || undefined),
@@ -385,13 +390,28 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const handler = routes[`${req.method} ${url.pathname}`];
   if (handler) {
+    // Guarantee a response: if a handler ever hangs, answer with an error at
+    // 45s instead of leaving the browser stuck (which shows as "Failed to
+    // fetch"). Every failure is logged so it's visible in /api/logs.
+    let done = false;
+    const guard = setTimeout(() => {
+      if (done) return;
+      done = true;
+      logError(`timeout ${req.method} ${url.pathname}`, new Error('handler exceeded 45s'));
+      try { sendJson(res, 504, { error: 'This request took too long and was aborted (see Settings → error log).' }); } catch {}
+    }, 45_000);
     try {
       const result = await handler(req, url);
-      sendJson(res, 200, result ?? null);
+      if (!done) { done = true; clearTimeout(guard); sendJson(res, 200, result ?? null); }
     } catch (err) {
-      sendJson(res, err.status && err.status >= 400 && err.status < 600 ? err.status : 500, {
-        error: err.message || 'Internal error'
-      });
+      logError(`${req.method} ${url.pathname}`, err);
+      if (!done) {
+        done = true;
+        clearTimeout(guard);
+        sendJson(res, err.status && err.status >= 400 && err.status < 600 ? err.status : 500, {
+          error: err.message || 'Internal error'
+        });
+      }
     }
     return;
   }

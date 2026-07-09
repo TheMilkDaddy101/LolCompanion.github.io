@@ -84,12 +84,12 @@ async function riotFetch(host, apiPath) {
     throw err;
   }
   const url = `https://${host}${apiPath}`;
-  const res = await throttled(() => fetch(url, { headers: { 'X-Riot-Token': key } }));
+  const res = await throttled(() => riotHttp(url, key));
   if (res.status === 429) {
     // One respectful retry after the server-instructed backoff.
     const retryAfter = Number(res.headers.get('retry-after') || 2);
     await new Promise((r) => setTimeout(r, (retryAfter + 0.5) * 1000));
-    const retry = await throttled(() => fetch(url, { headers: { 'X-Riot-Token': key } }));
+    const retry = await throttled(() => riotHttp(url, key));
     if (retry.ok) return retry.json();
     const err = new Error('Riot API rate limit hit — wait a minute and try again.');
     err.status = 429;
@@ -106,6 +106,27 @@ async function riotFetch(host, apiPath) {
     throw err;
   }
   return res.json();
+}
+
+// Riot request with a hard timeout and friendly network-failure message —
+// a DNS blocker (e.g. Pi-hole) or dropped connection surfaces clearly
+// instead of hanging the whole request forever.
+async function riotHttp(url, key) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 10_000);
+  try {
+    return await fetch(url, { headers: { 'X-Riot-Token': key }, signal: ctl.signal });
+  } catch (e) {
+    const err = new Error(
+      e.name === 'AbortError'
+        ? 'Riot API timed out (10s). Check your internet / DNS filter (Pi-hole?).'
+        : `Could not reach Riot API (${e.cause?.code || e.message}). A DNS blocker like Pi-hole can cause this.`
+    );
+    err.status = 504;
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function cachedFetch(host, apiPath, ttlMs) {
