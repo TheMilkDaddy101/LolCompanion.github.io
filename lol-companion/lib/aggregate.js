@@ -67,13 +67,14 @@ async function recentSummaries(puuid, platform, count, opts = {}) {
   return summaries;
 }
 
-function buildTags({ solo, recent, masteries, championId }) {
+function buildTags({ solo, recent, masteries, championId, champStats, onChamp }) {
   const tags = [];
   if (solo?.hotStreak) tags.push({ label: 'Hot streak', tone: 'good' });
   const played = recent.filter((m) => !m.remake);
-  const wins = played.filter((m) => m.win).length;
-  if (played.length >= 5 && wins >= 4) tags.push({ label: 'On fire', tone: 'good' });
-  if (played.length >= 5 && wins <= 1) tags.push({ label: 'Rough patch', tone: 'bad' });
+  const last5 = played.slice(0, 5);
+  const wins5 = last5.filter((m) => m.win).length;
+  if (last5.length >= 5 && wins5 >= 4) tags.push({ label: 'On fire', tone: 'good' });
+  if (last5.length >= 5 && wins5 <= 1) tags.push({ label: 'Rough patch', tone: 'bad' });
   if (solo) {
     const total = solo.wins + solo.losses;
     const wr = total ? solo.wins / total : 0;
@@ -84,17 +85,60 @@ function buildTags({ solo, recent, masteries, championId }) {
   } else {
     tags.push({ label: 'Unranked', tone: 'neutral' });
   }
-  if (championId && masteries.length) {
-    const onChamp = masteries.find((m) => m.championId === championId);
-    if (onChamp && onChamp.championPoints >= 150_000) {
-      tags.push({ label: 'One-trick alert', tone: 'warn' });
-    }
+  // One-trick: most of their recent ranked games on a single champ, or huge
+  // mastery on the champ they're locked in on.
+  const top = champStats?.[0];
+  if (top && played.length >= 8 && top.games / played.length >= 0.6) {
+    tags.push({ label: `${DDNAME(top)} one-trick`, tone: 'warn' });
+  } else if (championId) {
+    const m = masteries.find((x) => x.championId === championId);
+    if (m && m.points >= 200_000) tags.push({ label: 'One-trick alert', tone: 'warn' });
+  }
+  if (championId && onChamp) {
+    if (onChamp.games >= 5 && onChamp.winrate >= 65) tags.push({ label: 'Comfort pick — respect it', tone: 'warn' });
+    if (onChamp.games >= 4 && onChamp.winrate <= 35) tags.push({ label: 'Struggling on this pick', tone: 'good' });
+  }
+  if (championId && played.length >= 8 && !onChamp) {
+    tags.push({ label: 'Off-meta pick for them', tone: 'neutral' });
   }
   const last = played[0];
   if (last && Date.now() - last.gameCreation > 7 * 24 * 3600_000) {
     tags.push({ label: 'First game in a while', tone: 'warn' });
   }
   return tags;
+}
+
+// Tag text helper — champ names resolve client-side, so tags carry the raw
+// name from match data when we have it.
+function DDNAME(stat) {
+  return stat.championName || 'Champion';
+}
+
+// Per-champion aggregates from a window of ranked games — what they're
+// ACTUALLY playing and winning on right now, u.gg-style.
+function champStatsFrom(summaries) {
+  const byChamp = new Map();
+  for (const m of summaries) {
+    if (m.remake) continue;
+    let c = byChamp.get(m.championId);
+    if (!c) {
+      c = { championId: m.championId, championName: m.championName, games: 0, wins: 0, kdaSum: 0 };
+      byChamp.set(m.championId, c);
+    }
+    c.games += 1;
+    if (m.win) c.wins += 1;
+    c.kdaSum += Math.min(m.kda, 12);
+  }
+  return [...byChamp.values()]
+    .map((c) => ({
+      championId: c.championId,
+      championName: c.championName,
+      games: c.games,
+      wins: c.wins,
+      winrate: Math.round((100 * c.wins) / c.games),
+      avgKda: Math.round((c.kdaSum / c.games) * 10) / 10
+    }))
+    .sort((a, b) => b.games - a.games || b.winrate - a.winrate);
 }
 
 // Full scouting card for one player. `championId` = the champ they're
@@ -118,13 +162,24 @@ export async function playerDossier({ riotId, puuid, platform, championId = null
     err.status = 400;
     throw err;
   }
+  // 15 recent ranked games power everything below: form dots, per-champion
+  // winrates, and the headline stat on their current pick. Finished matches
+  // cache to disk forever, so repeat scouts cost almost nothing.
+  const SCOUT_WINDOW = 15;
   const [entries, masteries, recent] = await Promise.all([
     leagueEntriesByPuuid(puuid, platform).catch(() => []),
     topMasteries(puuid, platform, 3).catch(() => []),
-    recentSummaries(puuid, platform, 5, { type: 'ranked' }).catch(() => [])
+    recentSummaries(puuid, platform, SCOUT_WINDOW, { type: 'ranked' }).catch(() => [])
   ]);
   const solo = entries.find((e) => e.queueType === 'RANKED_SOLO_5x5') || null;
   const flex = entries.find((e) => e.queueType === 'RANKED_FLEX_SR') || null;
+  const masteryList = masteries.map((m) => ({
+    championId: m.championId,
+    level: m.championLevel,
+    points: m.championPoints
+  }));
+  const champStats = champStatsFrom(recent);
+  const onChamp = championId ? champStats.find((c) => c.championId === championId) || null : null;
   return {
     riotId,
     puuid,
@@ -138,17 +193,16 @@ export async function playerDossier({ riotId, puuid, platform, championId = null
       wins: flex.wins, losses: flex.losses,
       winrate: flex.wins + flex.losses ? Math.round((100 * flex.wins) / (flex.wins + flex.losses)) : 0
     },
-    masteries: masteries.map((m) => ({
-      championId: m.championId,
-      level: m.championLevel,
-      points: m.championPoints
-    })),
-    recent: recent.map((m) => ({
+    masteries: masteryList,
+    window: recent.filter((m) => !m.remake).length,
+    champStats: champStats.slice(0, 5),
+    onChamp,
+    recent: recent.slice(0, 5).map((m) => ({
       win: m.win, remake: m.remake, championId: m.championId,
       championName: m.championName, kda: Math.round(m.kda * 10) / 10,
       gameCreation: m.gameCreation
     })),
-    tags: buildTags({ solo, recent, masteries, championId })
+    tags: buildTags({ solo, recent, masteries: masteryList, championId, champStats, onChamp })
   };
 }
 
