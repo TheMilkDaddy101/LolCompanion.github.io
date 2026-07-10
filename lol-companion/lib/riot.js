@@ -168,6 +168,15 @@ export function accountByPuuid(puuid, platform) {
   return cachedFetch(host, `/riot/account/v1/accounts/by-puuid/${puuid}`, TTL.account);
 }
 
+// Which platform (na1/euw1/…) this player's LoL account is active on — so a
+// spectate-by-name can find their game even when it isn't on the platform
+// the app is configured for.
+export async function activeRegionByPuuid(puuid, platform) {
+  const host = `${ACCOUNT_REGION[platform] || 'americas'}.api.riotgames.com`;
+  const data = await cachedFetch(host, `/riot/account/v1/region/by-game/lol/by-puuid/${puuid}`, 3600_000);
+  return data?.region || null;
+}
+
 export function summonerByPuuid(puuid, platform) {
   return cachedFetch(`${platform}.api.riotgames.com`, `/lol/summoner/v4/summoners/by-puuid/${puuid}`, TTL.account);
 }

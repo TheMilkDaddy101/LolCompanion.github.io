@@ -7,7 +7,7 @@ import { exec } from 'node:child_process';
 import { getConfig, saveConfig, publicConfig } from './lib/config.js';
 import { lcuGet, lcuAvailable, champSelectChatMembers } from './lib/lcu.js';
 import { liveGet, liveAvailable } from './lib/live.js';
-import { accountByRiotId, activeGameByPuuid, checkKey, PLATFORMS } from './lib/riot.js';
+import { accountByRiotId, activeGameByPuuid, activeRegionByPuuid, checkKey, PLATFORMS } from './lib/riot.js';
 import { playerDossier, summonerBundle, recommendations } from './lib/aggregate.js';
 import { buildFor, matchupsFor, rawStats, diagnose, QUEUES, lastAttempts, currentPatch } from './lib/meta.js';
 import { appDir } from './lib/paths.js';
@@ -190,12 +190,25 @@ async function detectLiveGame(riotIdOverride) {
     throw err;
   }
   const account = await accountByRiotId(riotId, cfg.platform);
+  // Find the platform this player actually plays on — a friend on EUW (or a
+  // smurf on another server) would 404 forever against the configured one.
+  let platform = cfg.platform;
+  try {
+    const region = await activeRegionByPuuid(account.puuid, cfg.platform);
+    if (region && PLATFORMS.includes(region)) platform = region;
+  } catch {
+    // endpoint unavailable for this account — stick with the configured platform
+  }
   let game;
   try {
-    game = await activeGameByPuuid(account.puuid, cfg.platform);
+    game = await activeGameByPuuid(account.puuid, platform);
   } catch (e) {
     if (e.status === 404) {
-      const err = new Error(`${riotId} is not currently in a game.`);
+      const err = new Error(
+        `${riotId} (${platform.toUpperCase()}) is not in a spectatable game right now. ` +
+        'Riot only exposes standard LoL matches to spectators (not TFT, custom games, or Practice Tool), ' +
+        'and new games can take 2–4 minutes to appear.'
+      );
       err.status = 404;
       throw err;
     }
@@ -203,6 +216,7 @@ async function detectLiveGame(riotIdOverride) {
   }
   return {
     source: 'spectator',
+    platform,
     gameMode: game.gameMode,
     gameLength: game.gameLength,
     participants: game.participants.map((p) => ({

@@ -477,6 +477,8 @@ async function scoutGame() {
         if (p.riotId) params.set('riotId', p.riotId);
         const champKey = DD.champ(p.championId ?? p.championName)?.key;
         if (champKey) params.set('championId', champKey);
+        // Spectated games may live on a different platform than the config.
+        if (game.platform) params.set('platform', game.platform);
         const dossier = await api(`/api/scout/player?${params}`);
         fillPlayerCard(card, dossier);
       } catch (err) {
