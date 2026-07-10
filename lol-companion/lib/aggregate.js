@@ -148,6 +148,7 @@ function delayedDossier(riotId, puuid) {
   return {
     riotId: riotId || 'Unknown player',
     puuid: puuid || null,
+    profileIconId: null,
     solo: null,
     flex: null,
     masteries: [],
@@ -235,10 +236,13 @@ async function buildPlayerDossier({ riotId, puuid, platform, championId = null }
   // playerDossier) and finish in the background, so this no longer hard-fails.
   const SCOUT_WINDOW = 8;
   const startTime = Math.floor(Date.now() / 1000) - WINDOW_DAYS * 24 * 3600;
-  const [entries, masteries, recent] = await Promise.all([
+  const [entries, masteries, recent, summoner] = await Promise.all([
     withBudget(leagueEntriesByPuuid(puuid, platform), 8_000, []).catch(() => []),
     withBudget(topMasteries(puuid, platform, 3), 8_000, []).catch(() => []),
-    recentSummaries(puuid, platform, SCOUT_WINDOW, { type: 'ranked', startTime, deadlineMs: 8_000 }).catch(() => [])
+    recentSummaries(puuid, platform, SCOUT_WINDOW, { type: 'ranked', startTime, deadlineMs: 8_000 }).catch(() => []),
+    // Profile icon for the card portrait when no champion is picked yet
+    // (cheap: account data caches for 24h).
+    withBudget(summonerByPuuid(puuid, platform), 8_000, null).catch(() => null)
   ]);
   const solo = entries.find((e) => e.queueType === 'RANKED_SOLO_5x5') || null;
   const flex = entries.find((e) => e.queueType === 'RANKED_FLEX_SR') || null;
@@ -252,6 +256,7 @@ async function buildPlayerDossier({ riotId, puuid, platform, championId = null }
   return {
     riotId,
     puuid,
+    profileIconId: summoner?.profileIconId ?? null,
     solo: solo && {
       tier: solo.tier, rank: solo.rank, lp: solo.leaguePoints,
       wins: solo.wins, losses: solo.losses,

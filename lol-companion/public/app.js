@@ -331,6 +331,17 @@ async function toggleInlineBuild(card, champ, p) {
 }
 
 function fillPlayerCard(card, dossier) {
+  // No champion picked yet (lobby / early champ select) → show the player's
+  // profile icon instead of the "?" placeholder box.
+  const placeholder = card.querySelector('.champ-unknown');
+  if (placeholder && dossier.profileIconId != null && DD.profileIcon(dossier.profileIconId)) {
+    const icon = el('img', 'champ-portrait profile-portrait');
+    icon.src = DD.profileIcon(dossier.profileIconId);
+    icon.alt = dossier.riotId;
+    icon.title = dossier.riotId;
+    icon.loading = 'lazy';
+    placeholder.replaceWith(icon);
+  }
   const main = card.querySelector('.player-main');
   main.innerHTML = '';
   const nameRow = el('div', 'player-name', dossier.riotId);
