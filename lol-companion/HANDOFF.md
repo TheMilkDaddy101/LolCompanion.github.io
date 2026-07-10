@@ -69,6 +69,23 @@ the Riot key and is gitignored — never commit it.
 
 ## 4. OPEN BUGS — in priority order
 
+> **STATUS UPDATE (2026-07-09, local session):** Bugs #1 and #2 below are
+> FIXED and verified against a live game + live u.gg data.
+> - **#2 root cause:** u.gg's CDN 403-blocks Node's TLS fingerprint (any
+>   undici/node:https request, headers irrelevant) but accepts curl. u.gg
+>   requests now go through Windows' bundled `curl.exe` (`uggGet` in
+>   `lib/meta.js`). The URL format itself was already right:
+>   `stats2.u.gg/lol/1.5/overview/{dd_patch}/{queue}/{champId}/1.5.0.json`.
+>   The real leaf format is `[payload, timestamp]` — `pickRoles` unwraps it;
+>   all `parseOverview` sections verified against patch 16_13.
+> - **#1 root causes:** spectator/live-client report hidden or bot players
+>   as riotId `"#"` (now sanitized + puuid fallback), and slow Riot calls
+>   piled up behind the throttle (playerDossier now answers within 20s with
+>   a "Riot data delayed" card while the real fetch finishes in the
+>   background and lands in the 2-minute dossier cache).
+> - **#3 (Porofessor):** moot — u.gg works. Don't switch; Porofessor and
+>   League of Graphs are Cloudflare-fronted HTML, strictly worse to parse.
+
 ### Bug #1 (TOP PRIORITY): "Failed to fetch" — per-player stats / whole scout
 **Symptom:** In a live game / champ select, names reveal but every player card
 says **"Failed to fetch"**, and sometimes the entire scout + Builds + Diagnose
