@@ -154,30 +154,32 @@ async function detectPregame() {
 // pregame lobby, finally spectator-v5 for the configured Riot ID.
 async function detectLiveGame(riotIdOverride) {
   const cfg = getConfig();
-  try {
-    const [players, stats, activeName] = await Promise.all([
-      liveGet('playerlist'),
-      liveGet('gamestats'),
-      liveGet('activeplayername').catch(() => null)
-    ]);
-    return {
-      source: 'local-client',
-      gameMode: stats.gameMode,
-      gameTime: stats.gameTime,
-      participants: players.map((p) => ({
-        riotId: cleanRiotId(p.riotId),
-        championName: p.championName,
-        team: p.team, // ORDER / CHAOS
-        position: p.position || '',
-        level: p.level,
-        scores: p.scores,
-        self: Boolean(activeName && p.riotId === activeName)
-      }))
-    };
-  } catch {
-    // Not in a running game locally — check pregame states.
-  }
+  // A typed Riot ID means "spectate THAT player" — skip local detection
+  // entirely so being in your own game/lobby can't shadow the request.
   if (!riotIdOverride) {
+    try {
+      const [players, stats, activeName] = await Promise.all([
+        liveGet('playerlist'),
+        liveGet('gamestats'),
+        liveGet('activeplayername').catch(() => null)
+      ]);
+      return {
+        source: 'local-client',
+        gameMode: stats.gameMode,
+        gameTime: stats.gameTime,
+        participants: players.map((p) => ({
+          riotId: cleanRiotId(p.riotId),
+          championName: p.championName,
+          team: p.team, // ORDER / CHAOS
+          position: p.position || '',
+          level: p.level,
+          scores: p.scores,
+          self: Boolean(activeName && p.riotId === activeName)
+        }))
+      };
+    } catch {
+      // Not in a running game locally — check pregame states.
+    }
     const pregame = await detectPregame();
     if (pregame) return pregame;
   }

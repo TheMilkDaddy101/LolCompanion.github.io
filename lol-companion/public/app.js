@@ -9,7 +9,15 @@ const el = (tag, cls, text) => {
 };
 
 async function api(path) {
-  const res = await fetch(path);
+  let res;
+  try {
+    res = await fetch(path);
+  } catch {
+    // fetch() only rejects when the request never got an answer — i.e. the
+    // local server is gone. Say that instead of the browser's opaque
+    // "Failed to fetch".
+    throw new Error('Can’t reach the LoL Companion app — its window may have been closed. Start it again, then retry.');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
