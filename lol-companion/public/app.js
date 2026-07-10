@@ -450,9 +450,12 @@ async function scoutGame() {
         continue;
       }
       try {
+        // Send both identifiers when we have them — the server prefers the
+        // Riot ID (names always resolve through the public API; LCU puuids
+        // aren't guaranteed to) and keeps the puuid as fallback.
         const params = new URLSearchParams();
         if (p.puuid) params.set('puuid', p.puuid);
-        else params.set('riotId', p.riotId);
+        if (p.riotId) params.set('riotId', p.riotId);
         const champKey = DD.champ(p.championId ?? p.championName)?.key;
         if (champKey) params.set('championId', champKey);
         const dossier = await api(`/api/scout/player?${params}`);
