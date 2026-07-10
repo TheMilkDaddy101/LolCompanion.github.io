@@ -8,6 +8,7 @@
 // champ per half-day keeps us a polite guest.
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { dataDir } from './paths.js';
 
 const CACHE_DIR = path.join(dataDir(), 'cache', 'meta');
@@ -59,27 +60,74 @@ function patchCandidates(ddPatch) {
   return [ddPatch, marketing, stepBack(ddPatch), stepBack(marketing)];
 }
 
-async function fetchJson(url) {
-  // Cap each attempt so a hanging CDN can't stall the whole request (we try
-  // several URL variants, and without this a stuck socket freezes scouting).
+// u.gg's CDN rejects requests made from Node itself (undici AND node:https
+// both get 403 no matter what headers we send — it fingerprints the TLS
+// connection, not the headers) but accepts curl. Windows 10+ ships curl.exe,
+// so route u.gg requests through it and only fall back to fetch() where curl
+// doesn't exist.
+let curlUsable = null; // null = untested, then true/false
+
+function curlGet(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-s', '--max-time', String(Math.max(2, Math.ceil(timeoutMs / 1000))),
+      '-H', `User-Agent: ${UA}`, '-H', 'Accept: application/json',
+      '-w', '\n%{http_code}', url
+    ];
+    execFile('curl', args, { maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+      if (err) {
+        if (err.code === 'ENOENT') curlUsable = false;
+        return reject(new Error(err.code === 'ENOENT' ? 'curl unavailable'
+          : /timed out|28/.test(String(err.code) + err.message) ? 'timeout' : err.message));
+      }
+      curlUsable = true;
+      const cut = stdout.lastIndexOf('\n');
+      const status = Number(stdout.slice(cut + 1).trim());
+      if (!Number.isFinite(status) || status === 0) return reject(new Error('no response'));
+      resolve({ status, body: stdout.slice(0, cut) });
+    });
+  });
+}
+
+// One GET against u.gg via whichever transport works here. Returns
+// { status, body } without throwing on HTTP error statuses.
+async function uggGet(url, timeoutMs = 6000) {
+  if (curlUsable !== false) {
+    try {
+      return await curlGet(url, timeoutMs);
+    } catch (err) {
+      if (curlUsable !== false) throw err; // real network error — surface it
+      // curl missing on this machine — fall through to fetch once.
+    }
+  }
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 6000);
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': UA, Accept: 'application/json', Referer: 'https://u.gg/' },
       signal: ctl.signal
     });
-    if (!res.ok) {
-      const err = new Error(`HTTP ${res.status}`);
-      err.status = res.status;
-      throw err;
-    }
-    return await res.json();
+    return { status: res.status, body: await res.text() };
   } catch (err) {
-    if (err.name === 'AbortError') throw new Error('timeout');
-    throw err;
+    throw new Error(err.name === 'AbortError' ? 'timeout' : err.message);
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function fetchJson(url) {
+  // Cap each attempt so a hanging CDN can't stall the whole request (we try
+  // several URL variants, and without this a stuck socket freezes scouting).
+  const { status, body } = await uggGet(url);
+  if (status !== 200) {
+    const err = new Error(`HTTP ${status}`);
+    err.status = status;
+    throw err;
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error('non-JSON response');
   }
 }
 
@@ -172,13 +220,19 @@ const pct = (wins, matches) => (matches ? Math.round((1000 * wins) / matches) / 
 
 // Drill through { region: { tier: { role: data } } } picking World/Overall
 // (region "12", tier "10") when present, else whatever exists.
+// Each role's data arrives wrapped as [payload, "timestamp"] (verified live
+// on patch 16_13) — unwrap so callers see the payload directly.
 export function pickRoles(json) {
   const region = json?.['12'] || Object.values(json || {})[0];
   const tier = region?.['10'] || Object.values(region || {})[0];
   if (!tier || typeof tier !== 'object') return {};
   const out = {};
   for (const [roleId, data] of Object.entries(tier)) {
-    if (Array.isArray(data) && data.length) out[ROLE_IDS[roleId] || roleId] = data;
+    let leaf = data;
+    if (Array.isArray(leaf) && leaf.length === 2 && Array.isArray(leaf[0]) && typeof leaf[1] === 'string') {
+      leaf = leaf[0];
+    }
+    if (Array.isArray(leaf) && leaf.length) out[ROLE_IDS[roleId] || roleId] = leaf;
   }
   return out;
 }
@@ -193,15 +247,15 @@ function section(fn) {
   }
 }
 
-// Overview leaf layout (as replicated by open-source u.gg importers):
-// [0] runes [m, w, primaryStyle, subStyle, [6 perks]]
+// Overview leaf layout (verified against live u.gg data, patch 16_13):
+// [0] runes [matches, wins, primaryStyle, subStyle, [6 perks]]
 // [1] summoner spells [m, w, [2 ids]]
 // [2] starting items  [m, w, [ids]]
 // [3] core items      [m, w, [3 ids]]
 // [4] skills          [m, w, [order], "priority"]
-// [5] item options    [[ [id, m, w], ... ] x3]  (4th/5th/6th slots)
-// [6] winrate         [m, w]
-// [8] stat shards     [m, w, [3 ids]]
+// [5] item options    [[ [id, wins, matches], ... ] x3 + consumables slots]
+// [6] winrate         [wins, matches]
+// [8] stat shards     [m, w, ["3 ids" as strings]]
 export function parseOverview(data) {
   const out = {};
   out.runes = section(() => {
@@ -223,7 +277,9 @@ export function parseOverview(data) {
     };
   });
   out.itemOptions = section(() =>
-    data[5].map((slot) =>
+    // Only the first three slots are 4th/5th/6th item options — the trailing
+    // slots hold consumables/trinkets the UI shouldn't list as build items.
+    data[5].slice(0, 3).map((slot) =>
       (Array.isArray(slot) ? slot : [])
         .filter((it) => Array.isArray(it) && it.length >= 3)
         .slice(0, 4)
@@ -313,15 +369,11 @@ export async function diagnose(championId = 117, queueKey = 'ranked_solo') {
     }
   }
   const probe = async (url) => {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 4000);
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json', Referer: 'https://u.gg/' }, signal: ctl.signal });
-      return { url, status: res.status, ok: res.ok };
+      const { status } = await uggGet(url, 4000);
+      return { url, status, ok: status === 200 };
     } catch (e) {
-      return { url, status: e.name === 'AbortError' ? 'timeout' : (e.message || 'error') };
-    } finally {
-      clearTimeout(timer);
+      return { url, status: e.message || 'error' };
     }
   };
   const results = await Promise.all(urls.map(probe));

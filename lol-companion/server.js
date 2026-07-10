@@ -52,6 +52,15 @@ function readBody(req) {
   });
 }
 
+// Riot's spectator and live-client feeds report hidden/bot players with a
+// junk Riot ID (literally "#", or a bare name with no tag). Only pass along
+// names that can actually resolve through the API.
+function cleanRiotId(riotId) {
+  if (!riotId || typeof riotId !== 'string') return null;
+  const [name, tag] = riotId.split('#');
+  return name && tag ? riotId : null;
+}
+
 // One LCU team member (lobby or champ select) → scoutable participant.
 // Prefer the Riot ID name when the client exposes it: names always resolve
 // through the public API, while LCU puuids aren't guaranteed to.
@@ -156,7 +165,7 @@ async function detectLiveGame(riotIdOverride) {
       gameMode: stats.gameMode,
       gameTime: stats.gameTime,
       participants: players.map((p) => ({
-        riotId: p.riotId,
+        riotId: cleanRiotId(p.riotId),
         championName: p.championName,
         team: p.team, // ORDER / CHAOS
         position: p.position || '',
@@ -195,7 +204,7 @@ async function detectLiveGame(riotIdOverride) {
     gameMode: game.gameMode,
     gameLength: game.gameLength,
     participants: game.participants.map((p) => ({
-      riotId: p.riotId || null,
+      riotId: cleanRiotId(p.riotId),
       puuid: p.puuid,
       championId: p.championId,
       team: p.teamId === 100 ? 'ORDER' : 'CHAOS',
@@ -403,12 +412,13 @@ const server = http.createServer(async (req, res) => {
     // 45s instead of leaving the browser stuck (which shows as "Failed to
     // fetch"). Every failure is logged so it's visible in /api/logs.
     let done = false;
+    const timeoutMs = url.pathname === '/api/scout/player' ? 90_000 : 45_000;
     const guard = setTimeout(() => {
       if (done) return;
       done = true;
-      logError(`timeout ${req.method} ${url.pathname}`, new Error('handler exceeded 45s'));
-      try { sendJson(res, 504, { error: 'This request took too long and was aborted (see Settings → error log).' }); } catch {}
-    }, 45_000);
+      logError(`timeout ${req.method} ${url.pathname}`, new Error(`handler exceeded ${Math.round(timeoutMs / 1000)}s`));
+      try { sendJson(res, 504, { error: 'This request took too long and was aborted (see Settings -> error log).' }); } catch {}
+    }, timeoutMs);
     try {
       const result = await handler(req, url);
       if (!done) { done = true; clearTimeout(guard); sendJson(res, 200, result ?? null); }

@@ -7,6 +7,32 @@ import {
   topMasteries, matchIds, getMatch
 } from './riot.js';
 
+const DOSSIER_TTL = 2 * 60_000;
+const dossierCache = new Map();
+const dossierInFlight = new Map();
+
+function dossierKey({ riotId, puuid, platform, championId }) {
+  return [
+    platform || '',
+    riotId ? riotId.toLowerCase() : '',
+    puuid || '',
+    championId || ''
+  ].join('|');
+}
+
+async function withBudget(promise, ms, fallback) {
+  if (!ms) return promise;
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), ms); })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const QUEUE_NAMES = {
   400: 'Normal Draft', 420: 'Ranked Solo', 430: 'Normal Blind', 440: 'Ranked Flex',
   450: 'ARAM', 490: 'Quickplay', 700: 'Clash', 720: 'ARAM Clash',
@@ -53,11 +79,15 @@ export function summarizeMatch(match, puuid) {
 }
 
 async function recentSummaries(puuid, platform, count, opts = {}) {
-  const ids = await matchIds(puuid, platform, { count, ...opts });
+  const deadline = opts.deadlineMs ? Date.now() + opts.deadlineMs : 0;
+  const ids = await withBudget(matchIds(puuid, platform, { count, ...opts }), opts.deadlineMs || 0, []);
   const summaries = [];
   for (const id of ids) {
+    const remaining = deadline ? deadline - Date.now() : 0;
+    if (deadline && remaining <= 0) break;
     try {
-      const match = await getMatch(id, platform);
+      const match = await withBudget(getMatch(id, platform), remaining, null);
+      if (!match) break;
       const s = summarizeMatch(match, puuid);
       if (s) summaries.push(s);
     } catch {
@@ -114,6 +144,22 @@ function DDNAME(stat) {
   return stat.championName || 'Champion';
 }
 
+function delayedDossier(riotId, puuid) {
+  return {
+    riotId: riotId || 'Unknown player',
+    puuid: puuid || null,
+    solo: null,
+    flex: null,
+    masteries: [],
+    window: 0,
+    windowDays: 30,
+    champStats: [],
+    onChamp: null,
+    recent: [],
+    tags: [{ label: 'Riot data delayed', tone: 'neutral' }]
+  };
+}
+
 // Per-champion aggregates from a window of ranked games — what they're
 // ACTUALLY playing and winning on right now, u.gg-style.
 function champStatsFrom(summaries) {
@@ -141,9 +187,25 @@ function champStatsFrom(summaries) {
     .sort((a, b) => b.games - a.games || b.winrate - a.winrate);
 }
 
+// Spectator/live-client data uses "#" (or a bare name) for hidden and bot
+// players — only a real GameName#TAG resolves through the Riot API.
+function usableRiotId(riotId) {
+  if (!riotId) return false;
+  const [name, tag] = riotId.split('#');
+  return Boolean(name && tag);
+}
+
 // Full scouting card for one player. `championId` = the champ they're
 // currently playing (if we know it), used for one-trick detection.
-export async function playerDossier({ riotId, puuid, platform, championId = null }) {
+async function buildPlayerDossier({ riotId, puuid, platform, championId = null }) {
+  if (riotId && !usableRiotId(riotId)) {
+    if (!puuid) {
+      const err = new Error('Name hidden by Riot — cannot scout this player.');
+      err.status = 400;
+      throw err;
+    }
+    riotId = null; // junk name — resolve via the puuid path below instead
+  }
   if (riotId) {
     // Prefer name resolution — LCU-sourced puuids are not guaranteed to
     // match the API-key-scoped puuids the Riot API expects.
@@ -167,12 +229,16 @@ export async function playerDossier({ riotId, puuid, platform, championId = null
   // headline stat on their current pick. Finished matches cache to disk
   // forever, so repeat scouts cost almost nothing.
   const WINDOW_DAYS = 30;
-  const SCOUT_WINDOW = 25;
+  // Keep live scouting responsive: enough games for real winrate signal, but
+  // small enough that a 10-player cold-cache scout mostly fits the dev-key
+  // rate window. Overruns now degrade to a "data delayed" card (20s budget in
+  // playerDossier) and finish in the background, so this no longer hard-fails.
+  const SCOUT_WINDOW = 8;
   const startTime = Math.floor(Date.now() / 1000) - WINDOW_DAYS * 24 * 3600;
   const [entries, masteries, recent] = await Promise.all([
-    leagueEntriesByPuuid(puuid, platform).catch(() => []),
-    topMasteries(puuid, platform, 3).catch(() => []),
-    recentSummaries(puuid, platform, SCOUT_WINDOW, { type: 'ranked', startTime }).catch(() => [])
+    withBudget(leagueEntriesByPuuid(puuid, platform), 8_000, []).catch(() => []),
+    withBudget(topMasteries(puuid, platform, 3), 8_000, []).catch(() => []),
+    recentSummaries(puuid, platform, SCOUT_WINDOW, { type: 'ranked', startTime, deadlineMs: 8_000 }).catch(() => [])
   ]);
   const solo = entries.find((e) => e.queueType === 'RANKED_SOLO_5x5') || null;
   const flex = entries.find((e) => e.queueType === 'RANKED_FLEX_SR') || null;
@@ -208,6 +274,29 @@ export async function playerDossier({ riotId, puuid, platform, championId = null
     })),
     tags: buildTags({ solo, recent, masteries: masteryList, championId, champStats, onChamp })
   };
+}
+
+export async function playerDossier(args) {
+  const key = dossierKey(args);
+  const cached = dossierCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.value;
+  dossierCache.delete(key);
+
+  let promise = dossierInFlight.get(key);
+  if (!promise) {
+    promise = buildPlayerDossier(args)
+      .then((value) => {
+        dossierCache.set(key, { value, expires: Date.now() + DOSSIER_TTL });
+        if (dossierCache.size > 200) dossierCache.clear();
+        return value;
+      })
+      .finally(() => dossierInFlight.delete(key));
+    dossierInFlight.set(key, promise);
+  }
+  // Never leave the card hanging: answer within 20s with a "data delayed"
+  // placeholder if Riot is slow. The real fetch keeps running and lands in
+  // the cache, so the next refresh (or re-scout) gets the full card.
+  return withBudget(promise, 20_000, delayedDossier(args.riotId, args.puuid));
 }
 
 // u.gg-style profile bundle: identity + ranks + mastery + match history.

@@ -442,12 +442,6 @@ async function scoutGame() {
       cards.push({ p, card });
     }
 
-    // Your build, right under your card — no tab hopping mid-game.
-    const selfCard = cards.find(({ p }) => p.self && (p.championId ?? p.championName) != null && DD.champ(p.championId ?? p.championName));
-    if (selfCard) {
-      toggleInlineBuild(selfCard.card, selfCard.p.championId ?? selfCard.p.championName, selfCard.p);
-    }
-
     // Scout sequentially — keeps us politely inside Riot rate limits.
     let failures = 0;
     for (const { p, card } of cards) {
@@ -472,9 +466,12 @@ async function scoutGame() {
       ? `Scouting done — ${failures} player(s) could not be fully scouted.`
       : 'Scouting complete.';
   } catch (err) {
-    board.classList.add('hidden');
+    const hasLastResults = board.querySelector('.player-card');
+    if (!hasLastResults) board.classList.add('hidden');
     status.classList.add('error');
-    status.textContent = err.message;
+    status.textContent = hasLastResults
+      ? 'Refresh failed: ' + err.message + '. Keeping the last scout on screen.'
+      : err.message;
   } finally {
     scouting = false;
     $('#scoutBtn').disabled = false;
