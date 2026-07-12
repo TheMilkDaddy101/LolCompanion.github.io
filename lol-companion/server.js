@@ -189,7 +189,17 @@ async function detectLiveGame(riotIdOverride) {
     err.status = 404;
     throw err;
   }
-  const account = await accountByRiotId(riotId, cfg.platform);
+  let account;
+  try {
+    account = await accountByRiotId(riotId, cfg.platform);
+  } catch (e) {
+    if (e.status === 404) {
+      const err = new Error(`No Riot account called "${riotId}" exists — double-check the spelling and the #tag.`);
+      err.status = 404;
+      throw err;
+    }
+    throw e;
+  }
   // Find the platform this player actually plays on — a friend on EUW (or a
   // smurf on another server) would 404 forever against the configured one.
   let platform = cfg.platform;
@@ -225,6 +235,9 @@ async function detectLiveGame(riotIdOverride) {
       championId: p.championId,
       team: p.teamId === 100 ? 'ORDER' : 'CHAOS',
       spells: [p.spell1Id, p.spell2Id],
+      // Players who enabled Riot's privacy option arrive with a null puuid
+      // and their champion's name where the Riot ID should be.
+      anonymous: !p.puuid && !cleanRiotId(p.riotId),
       self: p.puuid === account.puuid
     }))
   };
@@ -379,11 +392,14 @@ const routes = {
 function serveStatic(req, res, url) {
   let filePath = url.pathname === '/' ? '/index.html' : url.pathname;
   filePath = path.normalize(filePath).replace(/^(\.\.[/\\])+/, '');
+  // Always revalidate the UI: a browser tab must never keep running an old
+  // frontend against a newer exe (heuristic caching would otherwise allow it).
+  const staticHeaders = (type) => ({ 'Content-Type': type, 'Cache-Control': 'no-cache' });
   if (EMBEDDED_PUBLIC) {
     const name = filePath.replace(/^[/\\]+/, '');
     const content = EMBEDDED_PUBLIC[name];
     if (content !== undefined) {
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(name)] || 'application/octet-stream' });
+      res.writeHead(200, staticHeaders(MIME[path.extname(name)] || 'application/octet-stream'));
       res.end(content);
     } else {
       res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
@@ -400,7 +416,7 @@ function serveStatic(req, res, url) {
       res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
       return;
     }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream' });
+    res.writeHead(200, staticHeaders(MIME[path.extname(full)] || 'application/octet-stream'));
     res.end(data);
   });
 }

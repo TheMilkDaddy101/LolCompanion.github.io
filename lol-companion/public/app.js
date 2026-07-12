@@ -10,13 +10,22 @@ const el = (tag, cls, text) => {
 
 async function api(path) {
   let res;
-  try {
-    res = await fetch(path);
-  } catch {
-    // fetch() only rejects when the request never got an answer — i.e. the
-    // local server is gone. Say that instead of the browser's opaque
-    // "Failed to fetch".
-    throw new Error('Can’t reach the LoL Companion app — its window may have been closed. Start it again, then retry.');
+  // fetch() only rejects when the request never got an answer — the local
+  // server is briefly gone (restarting) or the browser flushed its sockets
+  // (e.g. a network change when a game launches). Those heal in moments, so
+  // retry twice before declaring the app unreachable.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(path);
+      break;
+    } catch {
+      if (attempt >= 2) {
+        const err = new Error('Can’t reach the LoL Companion app — its window may have been closed. Start it again, then retry.');
+        err.connection = true;
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+    }
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -234,7 +243,7 @@ function playerCardSkeleton(p) {
   }
   head.appendChild(portrait);
   const main = el('div', 'player-main');
-  const nameRow = el('div', 'player-name', p.riotId || 'Hidden name');
+  const nameRow = el('div', 'player-name', p.riotId || (p.anonymous ? 'Anonymous player' : 'Hidden name'));
   if (p.self) nameRow.appendChild(el('span', 'you-chip', 'YOU'));
   else if (p.revealed) {
     const r = el('span', 'reveal-chip', 'revealed');
@@ -465,7 +474,9 @@ async function scoutGame() {
     let failures = 0;
     for (const { p, card } of cards) {
       if (!p.riotId && !p.puuid) {
-        failPlayerCard(card, 'Name hidden — cannot scout');
+        failPlayerCard(card, p.anonymous
+          ? 'Anonymous — this player hides their name from spectators (Riot privacy setting)'
+          : 'Name hidden — cannot scout');
         continue;
       }
       try {
