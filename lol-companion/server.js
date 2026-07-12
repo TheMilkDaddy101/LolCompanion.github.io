@@ -182,6 +182,29 @@ async function detectLiveGame(riotIdOverride) {
     }
     const pregame = await detectPregame();
     if (pregame) return pregame;
+
+    // Nothing answered. Ask the client where it thinks we are so the error
+    // is precise — LCU endpoints can 404 for a beat during phase
+    // transitions, and the loading screen has no data feed at all.
+    let phase = null;
+    try { phase = await lcuGet('/lol-gameflow/v1/gameflow-phase'); } catch { /* client closed */ }
+    if (phase === 'Lobby' || phase === 'Matchmaking' || phase === 'ReadyCheck' || phase === 'ChampSelect') {
+      await new Promise((r) => setTimeout(r, 600));
+      const retry = await detectPregame();
+      if (retry) return retry;
+      const err = new Error(
+        `League says you're in ${phase} but the lobby data isn't readable yet — hit Scout again in a moment.`
+      );
+      err.status = 503;
+      throw err;
+    }
+    if (phase === 'GameStart' || phase === 'InProgress') {
+      const err = new Error(
+        'Your game is still loading — the in-game data feed starts once you\'re on the map. Scout again then.'
+      );
+      err.status = 503;
+      throw err;
+    }
   }
   const riotId = riotIdOverride || cfg.riotId;
   if (!riotId) {

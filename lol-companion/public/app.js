@@ -504,9 +504,16 @@ async function scoutGame() {
     const hasLastResults = board.querySelector('.player-card');
     if (!hasLastResults) board.classList.add('hidden');
     status.classList.add('error');
-    status.textContent = hasLastResults
+    let msg = hasLastResults
       ? 'Refresh failed: ' + err.message + '. Keeping the last scout on screen.'
       : err.message;
+    // A name in the search box always wins over your own lobby/game — if it
+    // was left there from an earlier lookup, that's likely the real problem.
+    const staleId = $('#spectateInput').value.trim();
+    if (staleId) {
+      msg += ` — Tip: you're searching "${staleId}". Clear the search box to scout your own lobby or game.`;
+    }
+    status.textContent = msg;
   } finally {
     scouting = false;
     $('#scoutBtn').disabled = false;
