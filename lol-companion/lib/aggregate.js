@@ -207,6 +207,14 @@ async function buildPlayerDossier({ riotId, puuid, platform, championId = null }
     }
     riotId = null; // junk name — resolve via the puuid path below instead
   }
+  // Client-internal puuids are UUID-shaped and mean nothing to the Riot API —
+  // without a name there is nothing to scout (better a clear error than a
+  // blank "Unknown player" card).
+  if (!riotId && puuid && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(puuid)) {
+    const err = new Error('Only a client-internal id is available for this player — cannot scout without their Riot ID.');
+    err.status = 400;
+    throw err;
+  }
   if (riotId) {
     // Prefer name resolution — LCU-sourced puuids are not guaranteed to
     // match the API-key-scoped puuids the Riot API expects.

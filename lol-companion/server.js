@@ -134,14 +134,28 @@ async function detectPregame() {
     const members = (lobby.members || []).filter((m) => m.puuid || m.summonerName);
     if (members.length) {
       const me = lobby.localMember || {};
-      return {
-        source: 'lobby',
-        gameMode: lobby.gameConfig?.gameMode,
-        participants: members.map((m) => ({
-          ...lcuParticipant(m, 'ORDER'),
+      // Lobby members carry no Riot IDs, and LCU puuids live in a different
+      // namespace than the public API's (UUID-style vs base64) — so resolve
+      // each member's real GameName#TAG through the local client, and never
+      // forward the client-internal puuid upstream.
+      const participants = await Promise.all(members.map(async (m) => {
+        let riotId = lcuParticipant(m, 'ORDER').riotId;
+        if (!riotId && m.puuid) {
+          try {
+            const s = await lcuGet(`/lol-summoner/v2/summoners/puuid/${m.puuid}`);
+            if (s.gameName && s.tagLine) riotId = `${s.gameName}#${s.tagLine}`;
+          } catch { /* name stays hidden for this member */ }
+        }
+        return {
+          riotId,
+          puuid: null,
+          championId: null,
+          position: (m.firstPositionPreference || '').toUpperCase(),
+          team: 'ORDER',
           self: Boolean((me.puuid && m.puuid === me.puuid) || (me.summonerId && m.summonerId === me.summonerId))
-        }))
-      };
+        };
+      }));
+      return { source: 'lobby', gameMode: lobby.gameConfig?.gameMode, participants };
     }
   } catch {
     // not in a lobby
@@ -505,6 +519,7 @@ function openBrowser(url) {
   exec(cmd, () => {}); // best effort — the URL is printed either way
 }
 
+let listening = false;
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.log('');
@@ -514,11 +529,34 @@ server.on('error', (err) => {
     setTimeout(() => process.exit(0), 1500);
     return;
   }
-  console.error('Failed to start:', err.message);
-  process.exit(1);
+  // Only a failure BEFORE we're serving is fatal. A runtime 'error' event
+  // (socket accept hiccup etc.) must never silently kill the app — that
+  // exits with nothing in the log while the browser tab lives on, which
+  // looks exactly like "the app is open but nothing works".
+  if (!listening) {
+    console.error('Failed to start:', err.message);
+    process.exit(1);
+  }
+  logError('http server error (recovered)', err);
 });
 
+// Leave a breadcrumb for every way the process can end, so a dead app is
+// diagnosable from error.log alone: exit code 1+ = crash, SIGHUP/SIGINT =
+// the console window was closed / Ctrl+C.
+process.on('exit', (code) => {
+  if (code !== 0) logError('process exiting', new Error(`exit code ${code}`));
+});
+for (const sig of ['SIGHUP', 'SIGINT', 'SIGTERM', 'SIGBREAK']) {
+  try {
+    process.on(sig, () => {
+      logError('shutdown', new Error(`received ${sig} — console window closed or Ctrl+C`));
+      process.exit(0);
+    });
+  } catch { /* signal not supported on this platform */ }
+}
+
 server.listen(PORT, '127.0.0.1', () => {
+  listening = true;
   const url = `http://localhost:${PORT}`;
   console.log('');
   console.log('  LoL Companion is running');
