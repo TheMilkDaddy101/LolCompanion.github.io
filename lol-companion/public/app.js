@@ -46,7 +46,7 @@ const DD = {
         await fetch(`https://ddragon.leagueoflegends.com/cdn/${this.version}/data/en_US/champion.json`)
       ).json();
       for (const c of Object.values(champs.data)) {
-        const entry = { id: c.id, name: c.name, key: c.key };
+        const entry = { id: c.id, name: c.name, key: c.key, tags: c.tags || [], info: c.info || null };
         this.champByKey.set(c.key, entry);
         this.champByNorm.set(c.name.toLowerCase().replace(/[^a-z0-9]/g, ''), entry);
         this.champByNorm.set(c.id.toLowerCase(), entry);
@@ -277,7 +277,59 @@ function miniIcons(entries) {
   return row;
 }
 
-function renderInlineBuild(panel, build, matchups, champ) {
+/* ---- enemy-comp-aware item advice (computed locally from the lobby) ---- */
+// The last scouted roster — set by scoutGame, read when a build panel opens.
+let lastScoutParticipants = [];
+
+// Champions whose sustain is worth itemizing against.
+const HEAVY_HEALERS = new Set([
+  'Soraka', 'Yuumi', 'Nami', 'Sona', 'Aatrox', 'Vladimir', 'Dr. Mundo',
+  'Illaoi', 'Sylas', 'Swain', 'Warwick', 'Briar', 'Maokai', 'Zac',
+  'Mordekaiser', 'Kayn', 'Fiora', 'Olaf', 'Yone'
+]);
+
+// What to buy against the enemy comp, from data we already have: Data
+// Dragon damage profiles/tags for their champions. Returns concrete item
+// suggestions with the reason in the tooltip.
+function compAdvice(myChamp, viewer) {
+  if (!viewer || !viewer.team || !lastScoutParticipants.length) return null;
+  const enemies = lastScoutParticipants.filter((x) => x.team && x.team !== viewer.team);
+  const champs = enemies.map((x) => DD.champ(x.championId ?? x.championName)).filter((c) => c && c.info);
+  if (champs.length < 3) return null; // not enough picks known yet
+
+  let ad = 0, ap = 0, tanks = 0, assassins = 0, healers = 0;
+  for (const c of champs) {
+    ad += c.info.attack || 0;
+    ap += c.info.magic || 0;
+    if (c.tags.includes('Tank')) tanks += 1;
+    if (c.tags.includes('Assassin')) assassins += 1;
+    if (HEAVY_HEALERS.has(c.name)) healers += 1;
+  }
+  const apPct = Math.round((100 * ap) / Math.max(1, ad + ap));
+  const me = DD.champ(myChamp);
+  const myAP = me?.info ? me.info.magic > me.info.attack : false;
+  const defensive = (me?.tags || []).includes('Tank');
+
+  const items = [];
+  if (healers >= 1) {
+    items.push({
+      id: defensive ? 3076 : myAP ? 3916 : 3123,
+      why: `${healers} sustain-heavy enem${healers > 1 ? 'ies' : 'y'} — buy anti-heal early`
+    });
+  }
+  if (tanks >= 2 && !defensive) {
+    items.push({ id: myAP ? 6653 : 3036, why: `${tanks} tanks — you need % health damage` });
+  }
+  if (assassins >= 2) {
+    items.push({ id: myAP ? 3157 : 3026, why: `${assassins} assassins — plan a survival item` });
+  }
+  if (apPct >= 60) items.push({ id: 3111, why: `Enemy damage is ${apPct}% AP — magic resist boots` });
+  else if (apPct <= 40) items.push({ id: 3047, why: `Enemy damage is ${100 - apPct}% AD — armor boots` });
+  if (!items.length) return null;
+  return { apPct, items };
+}
+
+function renderInlineBuild(panel, build, matchups, champ, viewer) {
   panel.innerHTML = '';
   const line = (label, node) => {
     const row = el('div', 'ib-row');
@@ -310,6 +362,17 @@ function renderInlineBuild(panel, build, matchups, champ) {
       src: DD.itemIcon(o.id),
       title: DD.itemName(o.id) + (o.winrate != null ? ` — ${o.winrate}% WR` : '')
     }))));
+  }
+  // Situational picks against THIS enemy comp — hover an icon for the why.
+  const advice = compAdvice(champ, viewer);
+  if (advice) {
+    const row = el('div', 'ib-inline');
+    row.appendChild(miniIcons(advice.items.map((it) => ({
+      src: DD.itemIcon(it.id),
+      title: `${DD.itemName(it.id)} — ${it.why}`
+    }))));
+    row.appendChild(el('span', 'icon-sub', `enemy dmg ${100 - advice.apPct}% AD / ${advice.apPct}% AP`));
+    line('This game', row);
   }
   const rows = matchups?.matchups || [];
   if (rows.length >= 2) {
@@ -351,7 +414,7 @@ async function toggleInlineBuild(card, champ, p) {
       api(`/api/meta/build?${params}`),
       api(`/api/meta/matchups?${params}`).catch(() => null)
     ]);
-    renderInlineBuild(panel, build, matchups, champ);
+    renderInlineBuild(panel, build, matchups, champ, p);
     panel.dataset.loaded = '1';
   } catch (err) {
     panel.textContent = err.message;
@@ -473,6 +536,7 @@ async function scoutGame() {
     chaos.closest('.team').querySelector('h2').textContent = pregame ? 'Enemy Team' : 'Red Team';
     chaos.closest('.team').classList.toggle('hidden', !hasEnemies);
 
+    lastScoutParticipants = game.participants;
     const cards = [];
     for (const p of game.participants) {
       const card = playerCardSkeleton(p);
