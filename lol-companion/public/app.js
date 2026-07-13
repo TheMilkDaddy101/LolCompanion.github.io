@@ -296,9 +296,20 @@ function renderInlineBuild(panel, build, matchups, champ) {
     if (build.skills?.priority) row.appendChild(el('span', 'ib-skill', build.skills.priority));
     line('Spells', row);
   }
-  const items = [...(build.startItems || []), ...(build.coreItems || [])];
-  if (items.length) {
-    line('Items', miniIcons(items.map((id) => ({ src: DD.itemIcon(id), title: DD.itemName(id) }))));
+  if (build.startItems?.length) {
+    line('Start', miniIcons(build.startItems.map((id) => ({ src: DD.itemIcon(id), title: DD.itemName(id) }))));
+  }
+  if (build.coreItems?.length) {
+    line('Core', miniIcons(build.coreItems.map((id) => ({ src: DD.itemIcon(id), title: DD.itemName(id) }))));
+  }
+  // Best 4th/5th/6th item per slot, winrate in the tooltip — the full path
+  // without opening the Builds tab.
+  const next = (build.itemOptions || []).map((slot) => slot && slot[0]).filter(Boolean);
+  if (next.length) {
+    line('Then', miniIcons(next.map((o) => ({
+      src: DD.itemIcon(o.id),
+      title: DD.itemName(o.id) + (o.winrate != null ? ` — ${o.winrate}% WR` : '')
+    }))));
   }
   const rows = matchups?.matchups || [];
   if (rows.length >= 2) {
