@@ -470,6 +470,13 @@ async function scoutGame() {
       cards.push({ p, card });
     }
 
+    // Your build, right under your card — no tab hopping mid-game. Loads in
+    // parallel with the player scouting below.
+    const selfCard = cards.find(({ p }) => p.self && (p.championId ?? p.championName) != null && DD.champ(p.championId ?? p.championName));
+    if (selfCard) {
+      toggleInlineBuild(selfCard.card, selfCard.p.championId ?? selfCard.p.championName, selfCard.p);
+    }
+
     // Scout sequentially — keeps us politely inside Riot rate limits.
     let failures = 0;
     for (const { p, card } of cards) {
