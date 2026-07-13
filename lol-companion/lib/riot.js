@@ -26,38 +26,57 @@ const MATCH_REGION = {
 
 export const PLATFORMS = Object.keys(MATCH_REGION);
 
-// ---------------------------------------------------------------- throttle
-// Conservative token windows below Riot's dev-key limits (20/1s, 100/120s).
+// -------------------------------------------------------- rate + concurrency
+// Two guards below Riot's dev-key limits (20/1s, 100/120s): token windows for
+// the RATE, plus a hard cap on how many requests are in flight at once.
+// Without the concurrency cap, a live scout (10 players, each pulling several
+// match fetches) opens dozens of sockets simultaneously; on a slow/filtered
+// network those hung connections pile up. Every request passes through one
+// gate that admits the next only when a slot frees.
 const WINDOWS = [
   { limit: 15, ms: 1_000, stamps: [] },
   { limit: 95, ms: 120_000, stamps: [] }
 ];
-let queue = Promise.resolve();
+const MAX_INFLIGHT = 6;
+let inflight = 0;
+const waiters = [];
 
-function waitNeeded() {
+function windowWait() {
   const now = Date.now();
   let wait = 0;
   for (const w of WINDOWS) {
     w.stamps = w.stamps.filter((t) => now - t < w.ms);
-    if (w.stamps.length >= w.limit) {
-      wait = Math.max(wait, w.stamps[0] + w.ms - now);
-    }
+    if (w.stamps.length >= w.limit) wait = Math.max(wait, w.stamps[0] + w.ms - now);
   }
   return wait;
 }
 
-function throttled(fn) {
-  const run = queue.then(async () => {
-    let wait = waitNeeded();
-    while (wait > 0) {
-      await new Promise((r) => setTimeout(r, wait + 20));
-      wait = waitNeeded();
-    }
-    const now = Date.now();
-    for (const w of WINDOWS) w.stamps.push(now);
-  });
-  queue = run.catch(() => {});
-  return run.then(fn);
+function release() {
+  inflight -= 1;
+  const next = waiters.shift();
+  if (next) next();
+}
+
+async function acquire() {
+  if (inflight >= MAX_INFLIGHT) {
+    await new Promise((resolve) => waiters.push(resolve));
+  }
+  inflight += 1;
+  let wait = windowWait();
+  while (wait > 0) {
+    await new Promise((r) => setTimeout(r, wait + 20));
+    wait = windowWait();
+  }
+  for (const w of WINDOWS) w.stamps.push(Date.now());
+}
+
+async function throttled(fn) {
+  await acquire();
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
 }
 
 // ------------------------------------------------------------------- cache
