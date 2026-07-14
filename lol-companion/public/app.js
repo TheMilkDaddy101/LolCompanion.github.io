@@ -582,6 +582,12 @@ async function scoutGame() {
     status.textContent = failures
       ? `Scouting done — ${failures} player(s) could not be fully scouted.`
       : 'Scouting complete.';
+    // Riot periodically removes the champ-select name-reveal routes from the
+    // client. When that happens, say so — a lone self card looks broken.
+    if (game.source === 'champselect' && !game.revealedCount
+        && !game.participants.some((p) => !p.self && p.riotId)) {
+      status.textContent += ' Riot’s current patch hides teammate names in champ select — full scouting starts automatically once the game loads.';
+    }
   } catch (err) {
     const hasLastResults = board.querySelector('.player-card');
     if (!hasLastResults) board.classList.add('hidden');

@@ -105,19 +105,39 @@ export async function lcuAvailable() {
 // chat room still lists every member with their real Riot ID and puuid.
 // (Same public technique used by Porofessor / Blitz / the `reveal` tool.)
 export async function champSelectChatMembers() {
-  let raw;
-  try {
-    raw = await lcuGet('/chat/v5/participants');
-  } catch {
-    return [];
+  // Riot removes these routes patch by patch (champ-select anonymity war) —
+  // try every known source and use whichever still answers on this client.
+  const sources = [
+    // Classic: chat v5 participants filtered to the champ-select room.
+    // Confirmed removed (404) in the client build shipped 2026-07-13.
+    async () => {
+      const raw = await lcuGet('/chat/v5/participants');
+      const list = Array.isArray(raw) ? raw : raw?.participants || [];
+      return list.filter((p) => typeof p.cid === 'string' && p.cid.includes('champ-select'));
+    },
+    // Older route: find the championSelect conversation, list its members.
+    async () => {
+      const convs = await lcuGet('/lol-chat/v1/conversations');
+      const cs = (Array.isArray(convs) ? convs : []).find((c) => c.type === 'championSelect');
+      if (!cs) return [];
+      return lcuGet(`/lol-chat/v1/conversations/${encodeURIComponent(cs.id)}/participants`);
+    }
+  ];
+  for (const source of sources) {
+    try {
+      const members = ((await source()) || [])
+        .map((p) => ({
+          puuid: p.puuid || null,
+          riotId: (p.game_name && p.game_tag) ? `${p.game_name}#${p.game_tag}`
+            : (p.gameName && p.gameTag) ? `${p.gameName}#${p.gameTag}`
+            : p.name || null,
+          summonerId: p.summoner_id || p.summonerId || null
+        }))
+        .filter((p) => p.puuid || p.riotId);
+      if (members.length) return members;
+    } catch {
+      // route gone on this client build — try the next one
+    }
   }
-  const list = Array.isArray(raw) ? raw : raw?.participants || [];
-  return list
-    .filter((p) => typeof p.cid === 'string' && p.cid.includes('champ-select'))
-    .map((p) => ({
-      puuid: p.puuid || null,
-      riotId: p.game_name && p.game_tag ? `${p.game_name}#${p.game_tag}` : p.name || null,
-      summonerId: p.summoner_id || p.summonerId || null
-    }))
-    .filter((p) => p.puuid || p.riotId);
+  return [];
 }
