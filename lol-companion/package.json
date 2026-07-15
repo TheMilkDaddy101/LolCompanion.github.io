@@ -1,0 +1,14 @@
+{
+  "name": "lol-companion",
+  "version": "0.1.0",
+  "description": "Lightweight local League of Legends companion: live game scouting, summoner lookup, match history, and champion recommendations. Zero dependencies, no Overwolf.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

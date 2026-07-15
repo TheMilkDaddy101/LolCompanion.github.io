@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoL Companion</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>⚔️</text></svg>">
+</head>
+<body>
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#f0e6d2"/><stop offset="0.55" stop-color="#c8aa6e"/><stop offset="1" stop-color="#0ac8b9"/>
+            </linearGradient>
+          </defs>
+          <path d="M12 1.8 21 7v10l-9 5.2L3 17V7l9-5.2Z" stroke="url(#bg1)" stroke-width="1.6"/>
+          <path d="M12 6.5 16.8 9.3v5.4L12 17.5 7.2 14.7V9.3L12 6.5Z" fill="url(#bg1)" opacity="0.85"/>
+        </svg>
+        <span class="brand-name">LoL Companion</span>
+      </div>
+      <button class="nav-btn active" data-view="live">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M7.5 7.5a6.4 6.4 0 0 0 0 9M16.5 7.5a6.4 6.4 0 0 1 0 9M4.8 4.8a10.2 10.2 0 0 0 0 14.4M19.2 4.8a10.2 10.2 0 0 1 0 14.4"/></svg>
+        <span>Live Game</span>
+      </button>
+      <button class="nav-btn" data-view="summoner">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2"/><path d="m20 20-4.8-4.8"/></svg>
+        <span>Summoner</span>
+      </button>
+      <button class="nav-btn" data-view="builds">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.8 4.2a5 5 0 0 1 6 6L9.5 20.5a2.1 2.1 0 0 1-3-3L16.8 7.2"/><path d="m4 7 3-3 2.5 2.5-3 3L4 7Z"/></svg>
+        <span>Builds</span>
+      </button>
+      <button class="nav-btn" data-view="recs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h12v4a6 6 0 0 1-12 0V4Z"/><path d="M6 6H3.5a4 4 0 0 0 4 4M18 6h2.5a4 4 0 0 1-4 4M12 14v3.5M8.5 20.5h7M12 17.5v3"/></svg>
+        <span>For You</span>
+      </button>
+      <button class="nav-btn" data-view="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1"/></svg>
+        <span>Settings</span>
+      </button>
+      <div class="status-box" id="statusBox">
+        <div class="status-row"><span class="dot" id="dotClient"></span> League client</div>
+        <div class="status-row"><span class="dot" id="dotGame"></span> In game</div>
+        <div class="status-row"><span class="dot" id="dotKey"></span> Riot API key</div>
+        <div class="version-label" id="verLabel"></div>
+      </div>
+    </nav>
+
+    <main class="content">
+      <!-- ============================== LIVE ============================== -->
+      <section id="view-live" class="view">
+        <header class="view-header">
+          <h1>Live Game Scouting</h1>
+          <div class="header-actions">
+            <input id="spectateInput" placeholder="Spectate a Riot ID… (GameName#TAG)">
+            <button id="scoutBtn" class="primary">Scout current game</button>
+            <button id="pasteToggle" class="ghost" style="margin-top:0">Scout a list…</button>
+          </div>
+        </header>
+        <div id="pastePanel" class="paste-panel hidden">
+          <label for="pasteInput">Paste Riot IDs to scout — one per line, or separated by commas. Great for a champ-select roster you already have the names for.</label>
+          <textarea id="pasteInput" rows="5" placeholder="GameName#TAG&#10;Another Name#NA1&#10;Third Player#EUW"></textarea>
+          <div class="paste-actions">
+            <select id="pastePlatform"></select>
+            <button id="pasteScoutBtn" class="primary" style="margin-top:0">Scout these players</button>
+          </div>
+        </div>
+        <div id="liveStatus" class="notice">Checking for a live game…</div>
+        <div id="liveBoard" class="teams hidden">
+          <div class="team team-blue">
+            <h2>Blue Team</h2>
+            <div id="teamOrder" class="player-list"></div>
+          </div>
+          <div class="team team-red">
+            <h2>Red Team</h2>
+            <div id="teamChaos" class="player-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ SUMMONER ============================ -->
+      <section id="view-summoner" class="view hidden">
+        <header class="view-header">
+          <h1>Summoner Lookup</h1>
+          <div class="header-actions">
+            <input id="searchInput" placeholder="GameName#TAG">
+            <select id="searchPlatform"></select>
+            <button id="searchBtn" class="primary">Search</button>
+          </div>
+        </header>
+        <div id="summonerStatus" class="notice hidden"></div>
+        <div id="summonerResult" class="hidden">
+          <div class="profile-card" id="profileCard"></div>
+          <div class="two-col">
+            <div>
+              <h2>Match History</h2>
+              <div id="matchList" class="match-list"></div>
+              <button id="moreMatches" class="ghost">Load more</button>
+            </div>
+            <div>
+              <h2>Top Champions</h2>
+              <div id="masteryList" class="mastery-list"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================= BUILDS ============================= -->
+      <section id="view-builds" class="view hidden">
+        <header class="view-header">
+          <h1>Builds &amp; Matchups</h1>
+          <div class="header-actions">
+            <input id="buildChamp" list="champList" placeholder="Champion…">
+            <datalist id="champList"></datalist>
+            <select id="buildQueue">
+              <option value="ranked_solo">Ranked Solo</option>
+              <option value="ranked_flex">Ranked Flex</option>
+              <option value="aram">ARAM</option>
+              <option value="arena">Arena</option>
+            </select>
+            <select id="buildRole">
+              <option value="">Auto role</option>
+              <option value="TOP">Top</option>
+              <option value="JUNGLE">Jungle</option>
+              <option value="MID">Mid</option>
+              <option value="ADC">ADC</option>
+              <option value="SUPPORT">Support</option>
+            </select>
+            <button id="buildBtn" class="primary">Get build</button>
+            <button id="diagBtn" class="ghost" style="margin-top:0">Diagnose</button>
+          </div>
+        </header>
+        <pre id="diagOut" class="diag-out hidden"></pre>
+        <p class="muted">Current-patch aggregate data (via u.gg's public stats feed, cached locally for 12h). Tip: in the Live tab, click any champion portrait to jump here with that champ loaded.</p>
+        <div id="buildStatus" class="notice hidden"></div>
+        <div id="buildResult" class="hidden">
+          <div class="build-summary" id="buildSummary"></div>
+          <div class="build-grid">
+            <div class="build-card" id="runesCard"><h2>Runes</h2><div class="card-body"></div></div>
+            <div class="build-card" id="itemsCard"><h2>Items</h2><div class="card-body"></div></div>
+            <div class="build-card" id="skillsCard"><h2>Skills &amp; Spells</h2><div class="card-body"></div></div>
+            <div class="build-card" id="matchupsCard"><h2>Matchups</h2><div class="card-body"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================== RECS ============================== -->
+      <section id="view-recs" class="view hidden">
+        <header class="view-header">
+          <h1>Champion Recommendations</h1>
+          <div class="header-actions">
+            <select id="recsRole">
+              <option value="">All roles</option>
+              <option value="TOP">Top</option>
+              <option value="JUNGLE">Jungle</option>
+              <option value="MIDDLE">Mid</option>
+              <option value="BOTTOM">Bot</option>
+              <option value="UTILITY">Support</option>
+            </select>
+            <button id="recsBtn" class="primary">Analyze my games</button>
+          </div>
+        </header>
+        <p class="muted">Scores blend your champion mastery, winrate (smoothed), KDA, and recent play volume from your last 30 games — the champs you actually win on, not just the ones you like.</p>
+        <div id="recsStatus" class="notice hidden"></div>
+        <div id="recsList" class="recs-list"></div>
+      </section>
+
+      <!-- ============================ SETTINGS ============================ -->
+      <section id="view-settings" class="view hidden">
+        <header class="view-header"><h1>Settings</h1></header>
+        <div class="settings-card">
+          <label>Riot API key
+            <input id="cfgKey" type="password" placeholder="RGAPI-xxxxxxxx-…">
+            <small>Free at <a href="https://developer.riotgames.com" target="_blank" rel="noreferrer">developer.riotgames.com</a> — sign in, copy the Development API Key. Dev keys expire every 24h; just paste a fresh one. Stored only in a local file on this machine.</small>
+          </label>
+          <label>Region / platform
+            <select id="cfgPlatform"></select>
+          </label>
+          <label>Your Riot ID
+            <input id="cfgRiotId" placeholder="GameName#TAG">
+            <small>Used for “For You” recommendations and as the spectate fallback when no local game is detected.</small>
+          </label>
+          <label>League install folder <span class="muted">(optional)</span>
+            <input id="cfgLeaguePath" placeholder="C:\Riot Games\League of Legends">
+            <small>Only needed if the client isn’t auto-detected.</small>
+          </label>
+          <div>
+            <button id="saveCfg" class="primary">Save</button>
+            <span id="cfgSaved" class="saved-msg hidden">Saved ✓</span>
+          </div>
+          <div id="cfgError" class="notice error hidden"></div>
+          <small id="cfgWhere" class="muted"></small>
+          <div style="border-top:1px solid var(--border); padding-top:16px; margin-top:4px;">
+            <button id="logsBtn" class="ghost" style="margin-top:0">Show error log</button>
+            <button id="poroBtn" class="ghost" style="margin-top:0">Test Porofessor</button>
+            <small class="muted" style="display:block; margin-top:8px;">If something isn’t working, click “Show error log” and screenshot it — it shows exactly what failed. “Test Porofessor” checks whether we can pull live-game data from Porofessor on this machine.</small>
+            <pre id="logsOut" class="diag-out hidden"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
