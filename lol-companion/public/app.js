@@ -582,11 +582,12 @@ async function scoutGame() {
     status.textContent = failures
       ? `Scouting done — ${failures} player(s) could not be fully scouted.`
       : 'Scouting complete.';
-    // Riot periodically removes the champ-select name-reveal routes from the
-    // client. When that happens, say so — a lone self card looks broken.
-    if (game.source === 'champselect' && !game.revealedCount
-        && !game.participants.some((p) => !p.self && p.riotId)) {
-      status.textContent += ' Riot’s current patch hides teammate names in champ select — full scouting starts automatically once the game loads.';
+    // Riot's champ-select anonymity (patch of 2026-07-13) hides every ally
+    // identity. When no teammate is scoutable, say so — a lone self card
+    // looks broken otherwise.
+    if (game.source === 'champselect'
+        && !game.participants.some((p) => !p.self && (p.riotId || p.puuid))) {
+      status.textContent += ' Riot now hides teammate names in champ select (all scouting apps are affected) — full scouting starts automatically once the game loads.';
     }
   } catch (err) {
     const hasLastResults = board.querySelector('.player-card');
