@@ -210,7 +210,8 @@ let platformsFilled = false;
 function fillPlatformSelects(platforms) {
   if (platformsFilled || !platforms.length) return;
   platformsFilled = true;
-  for (const sel of [$('#searchPlatform'), $('#cfgPlatform')]) {
+  for (const sel of [$('#searchPlatform'), $('#cfgPlatform'), $('#pastePlatform')]) {
+    if (!sel) continue;
     sel.innerHTML = '';
     for (const p of platforms) {
       const opt = el('option', '', p.toUpperCase());
@@ -501,6 +502,37 @@ function failPlayerCard(card, message) {
   if (loading) loading.textContent = message;
 }
 
+// Scout a list of { p, card } pairs sequentially (polite to Riot rate
+// limits) and fill each card. Returns how many could not be scouted.
+async function scoutCards(cards, platform) {
+  let failures = 0;
+  for (const { p, card } of cards) {
+    if (!p.riotId && !p.puuid) {
+      failPlayerCard(card, p.anonymous
+        ? 'Anonymous — this player hides their name from spectators (Riot privacy setting)'
+        : 'Name hidden — cannot scout');
+      continue;
+    }
+    try {
+      // Send both identifiers when we have them — the server prefers the
+      // Riot ID (names always resolve through the public API; LCU puuids
+      // aren't guaranteed to) and keeps the puuid as fallback.
+      const params = new URLSearchParams();
+      if (p.puuid) params.set('puuid', p.puuid);
+      if (p.riotId) params.set('riotId', p.riotId);
+      const champKey = DD.champ(p.championId ?? p.championName)?.key;
+      if (champKey) params.set('championId', champKey);
+      if (platform) params.set('platform', platform);
+      const dossier = await api(`/api/scout/player?${params}`);
+      fillPlayerCard(card, dossier);
+    } catch (err) {
+      failures += 1;
+      failPlayerCard(card, err.message);
+    }
+  }
+  return failures;
+}
+
 let scouting = false;
 async function scoutGame() {
   if (scouting) return;
@@ -553,32 +585,7 @@ async function scoutGame() {
     }
 
     // Scout sequentially — keeps us politely inside Riot rate limits.
-    let failures = 0;
-    for (const { p, card } of cards) {
-      if (!p.riotId && !p.puuid) {
-        failPlayerCard(card, p.anonymous
-          ? 'Anonymous — this player hides their name from spectators (Riot privacy setting)'
-          : 'Name hidden — cannot scout');
-        continue;
-      }
-      try {
-        // Send both identifiers when we have them — the server prefers the
-        // Riot ID (names always resolve through the public API; LCU puuids
-        // aren't guaranteed to) and keeps the puuid as fallback.
-        const params = new URLSearchParams();
-        if (p.puuid) params.set('puuid', p.puuid);
-        if (p.riotId) params.set('riotId', p.riotId);
-        const champKey = DD.champ(p.championId ?? p.championName)?.key;
-        if (champKey) params.set('championId', champKey);
-        // Spectated games may live on a different platform than the config.
-        if (game.platform) params.set('platform', game.platform);
-        const dossier = await api(`/api/scout/player?${params}`);
-        fillPlayerCard(card, dossier);
-      } catch (err) {
-        failures += 1;
-        failPlayerCard(card, err.message);
-      }
-    }
+    const failures = await scoutCards(cards, game.platform);
     status.textContent = failures
       ? `Scouting done — ${failures} player(s) could not be fully scouted.`
       : 'Scouting complete.';
@@ -611,6 +618,69 @@ async function scoutGame() {
 
 $('#scoutBtn').addEventListener('click', scoutGame);
 $('#spectateInput').addEventListener('keydown', (e) => e.key === 'Enter' && scoutGame());
+
+/* ---- scout an arbitrary list of Riot IDs (e.g. a champ-select roster) ---- */
+// Accepts names separated by newlines, commas, or semicolons and keeps only
+// the ones in GameName#TAG form.
+function parseRiotIds(text) {
+  return [...new Set(
+    (text || '')
+      .split(/[\n,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => /.+#.+/.test(s))
+  )];
+}
+
+async function scoutList() {
+  if (scouting) return;
+  const ids = parseRiotIds($('#pasteInput').value);
+  const status = $('#liveStatus');
+  const board = $('#liveBoard');
+  status.classList.remove('hidden', 'error');
+  if (!ids.length) {
+    status.classList.add('error');
+    status.textContent = 'Paste at least one Riot ID in GameName#TAG form (one per line).';
+    return;
+  }
+  scouting = true;
+  $('#pasteScoutBtn').disabled = true;
+  const platform = $('#pastePlatform').value || appConfig.platform;
+  status.textContent = `Scouting ${ids.length} player(s) — first scout of each takes ~15s; repeats are cached…`;
+
+  // One flat list, no team split — these are names, not a detected game.
+  board.classList.remove('hidden');
+  const order = $('#teamOrder');
+  const chaos = $('#teamChaos');
+  order.innerHTML = '';
+  chaos.innerHTML = '';
+  order.closest('.team').querySelector('h2').textContent = 'Scouted Players';
+  chaos.closest('.team').classList.add('hidden');
+
+  const participants = ids.map((riotId) => ({ riotId, team: 'ORDER' }));
+  lastScoutParticipants = participants;
+  const cards = participants.map((p) => {
+    const card = playerCardSkeleton(p);
+    order.appendChild(card);
+    return { p, card };
+  });
+
+  try {
+    const failures = await scoutCards(cards, platform);
+    status.textContent = failures
+      ? `Scouting done — ${failures} of ${ids.length} could not be scouted (check the spelling/#tag or region).`
+      : `Scouting complete — ${ids.length} player(s).`;
+  } finally {
+    scouting = false;
+    $('#pasteScoutBtn').disabled = false;
+  }
+}
+
+$('#pasteToggle').addEventListener('click', () => {
+  const panel = $('#pastePanel');
+  panel.classList.toggle('hidden');
+  if (!panel.classList.contains('hidden')) $('#pasteInput').focus();
+});
+$('#pasteScoutBtn').addEventListener('click', scoutList);
 
 /* ---------------------------------------------------------- summoner view */
 let currentProfile = null;

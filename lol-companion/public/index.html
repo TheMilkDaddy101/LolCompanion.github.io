@@ -58,8 +58,17 @@
           <div class="header-actions">
             <input id="spectateInput" placeholder="Spectate a Riot ID… (GameName#TAG)">
             <button id="scoutBtn" class="primary">Scout current game</button>
+            <button id="pasteToggle" class="ghost" style="margin-top:0">Scout a list…</button>
           </div>
         </header>
+        <div id="pastePanel" class="paste-panel hidden">
+          <label for="pasteInput">Paste Riot IDs to scout — one per line, or separated by commas. Great for a champ-select roster you already have the names for.</label>
+          <textarea id="pasteInput" rows="5" placeholder="GameName#TAG&#10;Another Name#NA1&#10;Third Player#EUW"></textarea>
+          <div class="paste-actions">
+            <select id="pastePlatform"></select>
+            <button id="pasteScoutBtn" class="primary" style="margin-top:0">Scout these players</button>
+          </div>
+        </div>
         <div id="liveStatus" class="notice">Checking for a live game…</div>
         <div id="liveBoard" class="teams hidden">
           <div class="team team-blue">
